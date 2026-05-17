@@ -1,0 +1,68 @@
+# DeepLX Monitor 配置文件
+# 支持热加载：修改保存后约 1 秒自动生效（proxy 部分除外，需重启）
+# 也可通过 Web UI 设置面板修改，会自动写回此文件
+
+[upstream]
+
+# 连续失败多少次后标记端点为不健康
+max_failures = 3
+
+# 不健康端点探活间隔（秒）
+probe_interval_secs = 60
+
+# 上游 DeepLX 端点列表（支持多个，round-robin 负载均衡）
+[[upstream.endpoints]]
+name = "primary"
+url = "https://api.deeplx.org/YOUR_API_KEY/translate"
+api_key = ""
+
+# 可添加更多端点实现负载均衡和故障转移
+# [[upstream.endpoints]]
+# name = "secondary"
+# url = "https://api2.deeplx.org/YOUR_API_KEY/translate"
+# api_key = ""
+
+[proxy]
+
+# 监听地址（0.0.0.0 允许外部访问，127.0.0.1 仅本机）
+host = "0.0.0.0"
+
+# 监听端口
+port = 5555
+
+[monitor]
+
+# 前端自动刷新间隔（秒），0 表示不自动刷新
+auto_refresh_seconds = 5
+
+# 请求日志默认保留天数。超过此天数的旧日志会在写入新请求时被清理，
+# 清理前会先汇总进累计总数。此项为系统默认策略，不建议作为前端用户配置暴露。
+retention_days = 30
+
+[health_check]
+
+# 健康检查使用的源语言
+source_lang = "EN"
+
+# 健康检查使用的目标语言
+target_lang = "ZH"
+
+[cache]
+
+# 是否启用翻译缓存
+enabled = true
+
+# 缓存 TTL（秒），默认 1 小时
+ttl_secs = 3600
+
+# 最大缓存条目数，LRU 淘汰
+max_entries = 10000
+
+[demo]
+
+# 是否启用演示模式。开启后，服务启动时会自动生成一批假的监控数据，
+# 方便直接检查图表、表格、分页、错误态和移动端布局。
+enabled = false
+
+# 演示数据种子。相同 seed 会生成相同分布的假数据。
+seed = 20260511

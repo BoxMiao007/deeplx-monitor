@@ -1,0 +1,8 @@
+target/
+dist/
+frontend/node_modules/
+*.db
+*.log
+.git
+.gitnexus
+.DS_Store
