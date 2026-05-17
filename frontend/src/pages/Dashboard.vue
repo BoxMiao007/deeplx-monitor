@@ -1245,21 +1245,30 @@ function createMiniCharts() {
           const hoverIdx = ch._hoverIdx ?? -1
           if (hoverIdx === -1) return
           const meta = ch.getDatasetMeta(0)
-          const bar = meta.data[hoverIdx] as any
-          if (!bar) return
-          bar._saved = { width: bar.width, y: bar.y }
-          bar.width = bar.width * 1.6
-          bar.y = bar.y - 4
+          const radius = 3
+          for (let i = 0; i < meta.data.length; i++) {
+            const dist = Math.abs(i - hoverIdx)
+            if (dist > radius) continue
+            const bar = meta.data[i] as any
+            const scale = 1 + 0.6 * Math.cos((dist / radius) * (Math.PI / 2))
+            const lift = 4 * Math.cos((dist / radius) * (Math.PI / 2))
+            bar._saved = { width: bar.width, y: bar.y }
+            bar.width = bar.width * scale
+            bar.y = bar.y - lift
+          }
         },
         afterDraw(ch: any) {
           const hoverIdx = ch._hoverIdx ?? -1
           if (hoverIdx === -1) return
           const meta = ch.getDatasetMeta(0)
-          const bar = meta.data[hoverIdx] as any
-          if (!bar || !bar._saved) return
-          bar.width = bar._saved.width
-          bar.y = bar._saved.y
-          delete bar._saved
+          for (let i = 0; i < meta.data.length; i++) {
+            const bar = meta.data[i] as any
+            if (bar._saved) {
+              bar.width = bar._saved.width
+              bar.y = bar._saved.y
+              delete bar._saved
+            }
+          }
         },
       }],
     })
