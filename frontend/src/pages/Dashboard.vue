@@ -1209,6 +1209,7 @@ function createMiniCharts() {
           borderWidth: 0,
           barPercentage: 0.72,
           categoryPercentage: 0.9,
+          maxBarThickness: 14,
         }],
       },
       options: {
