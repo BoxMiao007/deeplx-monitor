@@ -143,13 +143,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 <!-- gitnexus:start -->
-## GitNexus — Code Intelligence
+# GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **deeplx-monitor-333** (771 symbols, 1238 relationships, 31 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **deeplx-monitor** (796 symbols, 1314 relationships, 38 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
-### Always Do
+## Always Do
 
 - **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
 - **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
@@ -157,23 +157,23 @@ This project is indexed by GitNexus as **deeplx-monitor-333** (771 symbols, 1238
 - When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
 - When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
 
-### Never Do
+## Never Do
 
 - NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
 - NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
 - NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
 - NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
 
-### Resources
+## Resources
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/deeplx-monitor-333/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/deeplx-monitor-333/clusters` | All functional areas |
-| `gitnexus://repo/deeplx-monitor-333/processes` | All execution flows |
-| `gitnexus://repo/deeplx-monitor-333/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/deeplx-monitor/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/deeplx-monitor/clusters` | All functional areas |
+| `gitnexus://repo/deeplx-monitor/processes` | All execution flows |
+| `gitnexus://repo/deeplx-monitor/process/{name}` | Step-by-step execution trace |
 
-### CLI
+## CLI
 
 | Task | Read this skill file |
 |------|---------------------|

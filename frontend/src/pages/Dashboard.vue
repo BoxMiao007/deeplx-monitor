@@ -1186,17 +1186,26 @@ function createMiniCharts() {
   const countBg = buildHeatColors(counts)
   const charsBg = buildHeatColors(chars)
 
-  if (countMiniChartCanvas.value) {
-    countMiniChartCanvas.value.width = countMiniChartCanvas.value.offsetWidth
-    countMiniChartCanvas.value.height = 72
-    countMiniChart = new Chart(countMiniChartCanvas.value, {
+  function buildMiniBarChart(
+    canvas: HTMLCanvasElement,
+    chartLabels: string[],
+    data: number[],
+    bg: string[],
+    maxVal: number,
+    tooltipLabel: string,
+  ): ChartType {
+    canvas.width = canvas.offsetWidth
+    canvas.height = 72
+
+    const chart = new Chart!(canvas, {
       type: 'bar',
       data: {
-        labels,
+        labels: chartLabels,
         datasets: [{
-          data: counts,
-          backgroundColor: countBg,
-          borderRadius: 2,
+          data,
+          backgroundColor: [...bg],
+          borderRadius: 3,
+          borderSkipped: false,
           borderWidth: 0,
           barPercentage: 0.72,
           categoryPercentage: 0.9,
@@ -1206,74 +1215,86 @@ function createMiniCharts() {
         responsive: false,
         maintainAspectRatio: false,
         animation: false as const,
-        layout: {
-          padding: { left: 6, right: 6, top: 0, bottom: 0 },
-        },
+        events: ['mousemove', 'mouseout'],
+        interaction: { mode: 'index', intersect: false, axis: 'x' },
+        layout: { padding: { left: 6, right: 6, top: 8, bottom: 0 } },
         plugins: {
           legend: { display: false },
           tooltip: {
             enabled: true,
+            displayColors: false,
+            backgroundColor: 'rgba(17, 24, 39, 0.96)',
+            titleColor: '#ffffff',
+            bodyColor: '#e5e7eb',
+            padding: 8,
+            cornerRadius: 6,
             callbacks: {
-              title(items) {
-                return items[0]?.label ?? ''
-              },
-              label(item) {
-                return `调用次数：${formatNumber(item.parsed.y ?? 0)}`
-              },
+              title(items: any[]) { return items[0]?.label ?? '' },
+              label(item: any) { return `${tooltipLabel}：${formatNumber(item.parsed.y ?? 0)}` },
             },
           },
         },
         scales: {
           x: { display: false, offset: true },
-          y: { display: false, suggestedMax: maxCount * 1.12 },
+          y: { display: false, suggestedMax: maxVal * 1.2 },
         },
       },
+      plugins: [{
+        id: 'barScaleHighlight',
+        beforeDraw(ch: any) {
+          const hoverIdx = ch._hoverIdx ?? -1
+          if (hoverIdx === -1) return
+          const meta = ch.getDatasetMeta(0)
+          const bar = meta.data[hoverIdx] as any
+          if (!bar) return
+          bar._saved = { width: bar.width, y: bar.y }
+          bar.width = bar.width * 1.6
+          bar.y = bar.y - 4
+        },
+        afterDraw(ch: any) {
+          const hoverIdx = ch._hoverIdx ?? -1
+          if (hoverIdx === -1) return
+          const meta = ch.getDatasetMeta(0)
+          const bar = meta.data[hoverIdx] as any
+          if (!bar || !bar._saved) return
+          bar.width = bar._saved.width
+          bar.y = bar._saved.y
+          delete bar._saved
+        },
+      }],
     })
+
+    canvas.onmousemove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const area = (chart as any).chartArea
+      if (!area) return
+      const relX = x - area.left
+      const usable = area.right - area.left
+      const idx = Math.max(0, Math.min(bg.length - 1, Math.floor(relX / (usable / bg.length))))
+      if ((chart as any)._hoverIdx === idx) return
+      ;(chart as any)._hoverIdx = idx
+      chart.data.datasets[0].backgroundColor = bg.map((c: string, i: number) =>
+        i === idx ? c.replace(/[\d.]+\)$/, '1)') : c.replace(/[\d.]+\)$/, '0.18)')
+      )
+      chart.update('none')
+    }
+
+    canvas.onmouseleave = () => {
+      ;(chart as any)._hoverIdx = -1
+      chart.data.datasets[0].backgroundColor = [...bg]
+      chart.update('none')
+    }
+
+    return chart
+  }
+
+  if (countMiniChartCanvas.value) {
+    countMiniChart = buildMiniBarChart(countMiniChartCanvas.value, labels, counts, countBg, maxCount, '调用次数')
   }
 
   if (charsMiniChartCanvas.value) {
-    charsMiniChartCanvas.value.width = charsMiniChartCanvas.value.offsetWidth
-    charsMiniChartCanvas.value.height = 72
-    charsMiniChart = new Chart(charsMiniChartCanvas.value, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{
-          data: chars,
-          backgroundColor: charsBg,
-          borderRadius: 2,
-          borderWidth: 0,
-          barPercentage: 0.72,
-          categoryPercentage: 0.9,
-        }],
-      },
-      options: {
-        responsive: false,
-        maintainAspectRatio: false,
-        animation: false as const,
-        layout: {
-          padding: { left: 6, right: 6, top: 0, bottom: 0 },
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            enabled: true,
-            callbacks: {
-              title(items) {
-                return items[0]?.label ?? ''
-              },
-              label(item) {
-                return `字符数：${formatNumber(item.parsed.y ?? 0)}`
-              },
-            },
-          },
-        },
-        scales: {
-          x: { display: false, offset: true },
-          y: { display: false, suggestedMax: maxChars * 1.12 },
-        },
-      },
-    })
+    charsMiniChart = buildMiniBarChart(charsMiniChartCanvas.value, labels, chars, charsBg, maxChars, '字符数')
   }
 }
 
@@ -1437,6 +1458,7 @@ function closeSettings() {
 async function onHealthCheck() {
   checking.value = true
   await store.triggerHealthCheck()
+  await store.fetchUpstreamStatus()
   checking.value = false
 }
 
@@ -1947,7 +1969,7 @@ const FLAG_URL: Record<string, string> = {
 }
 
 .mini-chart-wrap {
-  margin-top: var(--space-sm);
+  margin-top: auto;
   border-radius: var(--radius-md);
   overflow: hidden;
 }
