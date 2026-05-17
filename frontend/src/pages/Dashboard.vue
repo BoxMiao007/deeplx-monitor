@@ -54,6 +54,7 @@
               </button>
             </div>
           </label>
+          <button class="btn-primary btn-sm" @click="openSettings">设置</button>
         </div>
       </section>
 
@@ -97,9 +98,6 @@
               <span class="overview-metric-value number">{{ overviewHealthyEndpoints }}</span>
             </div>
           </div>
-          <div class="overview-actions">
-            <button class="btn-primary btn-sm overview-action-btn" @click="openSettings">设置</button>
-          </div>
         </article>
       </section>
 
@@ -118,7 +116,7 @@
       </section>
 
       <section class="infra-grid">
-        <article v-if="store.upstreamStatus.length > 0" class="card section-card">
+        <article v-if="store.upstreamStatus.length > 0" class="card section-card clip-card">
           <div class="section-topbar">
             <div>
               <h2 class="section-title">上游端点</h2>
@@ -166,11 +164,14 @@
                 <span :class="['upstream-grid-value', 'number', successRateColor(Number(upstreamOverallSuccessRate))]">{{ upstreamOverallSuccessRate }}%</span>
               </div>
             </div>
-            <div class="health-check-result" v-if="store.healthStatus.checked_at">
+            <div class="health-check-result">
               <span class="health-check-result-label">上次健康检查</span>
-              <span :class="['badge', 'badge-sm', store.healthStatus.status === 'ok' ? 'badge-success' : 'badge-error']">{{ store.healthStatus.status === 'ok' ? '正常' : '异常' }}</span>
-              <span v-if="store.healthStatus.status === 'ok'" :class="['health-check-result-latency', 'number', latencyColor(store.healthStatus.latency_ms ?? 0)]">{{ store.healthStatus.latency_ms ?? '-' }}ms</span>
-              <span class="health-check-result-time">{{ formatCheckedAt(store.healthStatus.checked_at) }}</span>
+              <template v-if="store.healthStatus.checked_at">
+                <span class="health-check-result-time">{{ formatCheckedAt(store.healthStatus.checked_at) }}</span>
+                <span :class="['badge', 'badge-sm', store.healthStatus.status === 'ok' ? 'badge-success' : 'badge-error']">{{ store.healthStatus.status === 'ok' ? '正常' : '异常' }}</span>
+                <span v-if="store.healthStatus.status === 'ok'" :class="['health-check-result-latency', 'number', latencyColor(store.healthStatus.latency_ms ?? 0)]">{{ store.healthStatus.latency_ms ?? '-' }}ms</span>
+              </template>
+              <span v-else class="health-check-result-time">暂无记录</span>
             </div>
           </div>
           <div class="upstream-panel" v-else-if="activeUpstreamData">
@@ -202,10 +203,10 @@
           </div>
         </article>
 
-        <article class="card section-card">
+        <article class="card section-card clip-card">
           <div class="section-topbar">
             <div>
-              <h2 class="section-title">翻译缓存</h2>
+              <h2 class="section-title">翻译缓存 <span class="mode-badge">{{ (store.cacheStats?.max_memory_mb ?? 0) > 0 ? '内存模式' : '条目模式' }}</span></h2>
               <p class="section-subtitle">缓存命中率与容量使用情况</p>
             </div>
           </div>
@@ -224,7 +225,7 @@
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">缓存条目</span>
-              <span class="cache-stat-value number">{{ store.cacheStats.size }} / {{ store.cacheStats.max_entries }}</span>
+              <span class="cache-stat-value number">{{ store.cacheStats.max_memory_mb > 0 ? formatNumber(store.cacheStats.size) : `${formatNumber(store.cacheStats.size)} / ${formatNumber(store.cacheStats.max_entries)}` }}</span>
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">内存占用</span>
@@ -232,7 +233,7 @@
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">缓存时长</span>
-              <span class="cache-stat-value number">{{ store.cacheStats.ttl_secs }}s</span>
+              <span class="cache-stat-value number">{{ formatTtl(store.cacheStats.ttl_secs) }}</span>
             </div>
           </div>
           <div v-else class="text-muted" style="padding: 1rem;">缓存未启用</div>
@@ -335,7 +336,7 @@
               >{{ tab.label }}</button>
             </div>
           </div>
-          <div ref="trendChartsGrid" class="charts-grid">
+          <div class="charts-grid">
             <div class="chart-wrap panel-surface lang-usage-wrap">
               <div class="chart-label">语言使用趋势</div>
               <canvas ref="langUsageTrendCanvas"></canvas>
@@ -615,9 +616,9 @@
                   </select>
                 </div>
               </div>
-              <div class="form-group compact">
+              <div :class="['form-group', 'compact', { 'field-disabled': settingsFullForm.cache.max_memory_mb > 0 }]">
                 <label class="form-label">最大条目数</label>
-                <input v-model.number="settingsFullForm.cache.max_entries" type="number" class="input" min="1">
+                <input v-model.number="settingsFullForm.cache.max_entries" type="number" class="input" min="1" :disabled="settingsFullForm.cache.max_memory_mb > 0">
               </div>
             </div>
             <div class="form-row">
@@ -738,7 +739,6 @@ let manualRefreshToastSeq = 0
 const requestsChartCanvas = ref<HTMLCanvasElement | null>(null)
 const charsChartCanvas = ref<HTMLCanvasElement | null>(null)
 const langUsageTrendCanvas = ref<HTMLCanvasElement | null>(null)
-const trendChartsGrid = ref<HTMLDivElement | null>(null)
 const countMiniChartCanvas = ref<HTMLCanvasElement | null>(null)
 const charsMiniChartCanvas = ref<HTMLCanvasElement | null>(null)
 const errorTrendCanvas = ref<HTMLCanvasElement | null>(null)
@@ -1054,8 +1054,8 @@ function createCharts() {
             fill: true,
             tension: 0.35,
             pointRadius: 0,
-            pointHoverRadius: 6,
-            pointHitRadius: 16,
+            pointHoverRadius: 4,
+            pointHitRadius: 12,
             pointHoverBackgroundColor: '#ffffff',
             pointHoverBorderColor: color.stroke,
           }
@@ -1070,7 +1070,7 @@ function createCharts() {
             display: true,
             position: 'bottom',
             align: 'center',
-            labels: { color: '#cbd5e1', usePointStyle: true, boxWidth: 7, boxHeight: 7, padding: 10, font: { size: 10 } },
+            labels: { color: '#cbd5e1', usePointStyle: true, boxWidth: 6, boxHeight: 6, padding: 8, font: { size: 10 } },
           },
           tooltip: {
             ...baseOptions.plugins.tooltip,
@@ -1101,8 +1101,8 @@ function createCharts() {
           fill: true,
           tension: 0.35,
           pointRadius: 0,
-          pointHoverRadius: 8,
-          pointHitRadius: 20,
+          pointHoverRadius: 4,
+          pointHitRadius: 12,
           pointHoverBorderWidth: 2,
           pointHoverBackgroundColor: '#ffffff',
           pointHoverBorderColor: '#60a5fa',
@@ -1141,8 +1141,8 @@ function createCharts() {
           fill: true,
           tension: 0.35,
           pointRadius: 0,
-          pointHoverRadius: 8,
-          pointHitRadius: 20,
+          pointHoverRadius: 4,
+          pointHitRadius: 12,
           pointHoverBorderWidth: 2,
           pointHoverBackgroundColor: '#ffffff',
           pointHoverBorderColor: '#f59e0b',
@@ -1289,6 +1289,12 @@ function successRateColor(rate: number) {
   return 'color-bad'
 }
 
+function formatTtl(secs: number): string {
+  if (secs >= 3600 && secs % 3600 === 0) return `${secs / 3600}h`
+  if (secs >= 60 && secs % 60 === 0) return `${secs / 60}m`
+  return `${secs}s`
+}
+
 function barStyle(value: number, lang: string, metric: 'source' | 'target' | 'total') {
   const max = langBarMaxes.value[metric]
   const color = `${LANG_COLOR[lang.toUpperCase()] || '#3b82f6'}cc`
@@ -1337,6 +1343,8 @@ async function refreshMainPanels() {
     store.fetchStats(headerStatsRange.value),
     store.fetchLangHourlyStats(activeChartTab.value === 'daily' ? 30 : 1),
     store.fetchChart(),
+    store.fetchUpstreamStatus(),
+    store.fetchCacheStats(),
   ])
   await nextTick()
   await ensureChartJs()
@@ -1350,6 +1358,17 @@ async function refreshLangPanels() {
 
 async function refreshRequestsPanel(page = currentPage.value) {
   await store.fetchRequests(page, pageSize.value)
+}
+
+async function refreshAll() {
+  await Promise.all([
+    refreshMainPanels(),
+    refreshLangPanels(),
+    refreshRequestsPanel(),
+    store.fetchHeatmap(heatmapView.value),
+    store.fetchErrorTrend(errorTrendDays.value),
+  ])
+  renderErrorTrendChart()
 }
 
 async function openSettings() {
@@ -1485,7 +1504,7 @@ function heatmapCellStyle(count: number) {
 async function onHeaderRefreshChange() {
   await store.updateConfig({ auto_refresh_seconds: headerRefresh.value })
   if (headerRefresh.value > 0) {
-    store.startAutoRefresh(headerRefresh.value, refreshMainPanels)
+    store.startAutoRefresh(headerRefresh.value, refreshAll)
   } else {
     store.stopAutoRefresh()
   }
@@ -1585,15 +1604,11 @@ async function saveSettings() {
     // 同步 header 刷新控件
     headerRefresh.value = settingsFullForm.monitor.auto_refresh_seconds
     if (headerRefresh.value > 0) {
-      store.startAutoRefresh(headerRefresh.value, refreshMainPanels)
+      store.startAutoRefresh(headerRefresh.value, refreshAll)
     } else {
       store.stopAutoRefresh()
     }
-    await Promise.all([
-      refreshMainPanels(),
-      refreshLangPanels(),
-      refreshRequestsPanel(),
-    ])
+    await refreshAll()
   }
 
   setTimeout(() => {
@@ -1665,19 +1680,10 @@ onMounted(async () => {
       headerRange.value = parsed
     }
   }
-  await Promise.all([
-    refreshMainPanels(),
-    refreshLangPanels(),
-    refreshRequestsPanel(),
-    store.fetchUpstreamStatus(),
-    store.fetchCacheStats(),
-    store.fetchHeatmap(heatmapView.value),
-    store.fetchErrorTrend(errorTrendDays.value),
-  ])
-  renderErrorTrendChart()
+  await refreshAll()
   headerRefresh.value = store.config.auto_refresh_seconds
   if (headerRefresh.value > 0) {
-    store.startAutoRefresh(headerRefresh.value, refreshMainPanels)
+    store.startAutoRefresh(headerRefresh.value, refreshAll)
   }
 })
 
@@ -1960,7 +1966,8 @@ const FLAG_URL: Record<string, string> = {
 .overview-metrics {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 6px;
+  gap: 8px;
+  flex: 1;
 }
 
 .overview-metric-item {
@@ -1968,7 +1975,7 @@ const FLAG_URL: Record<string, string> = {
   justify-content: space-between;
   align-items: center;
   gap: var(--space-sm);
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: var(--radius-md);
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(148, 163, 184, 0.08);
@@ -1992,19 +1999,11 @@ const FLAG_URL: Record<string, string> = {
   margin-left: 2px;
 }
 
-.overview-actions {
-  padding-top: var(--space-sm);
-}
-
-.overview-action-btn {
-  width: 100%;
-}
-
 .health-check-result {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  margin-top: var(--space-md);
+  margin-top: var(--space-lg);
   padding: 10px 14px;
   border-radius: var(--radius-md);
   background: rgba(255,255,255,0.03);
@@ -2015,16 +2014,18 @@ const FLAG_URL: Record<string, string> = {
 .health-check-result-label {
   color: var(--body-muted);
   font-weight: 500;
-}
-
-.health-check-result-latency {
-  color: var(--on-dark);
-  font-weight: 600;
+  white-space: nowrap;
 }
 
 .health-check-result-time {
   color: var(--body-muted);
   margin-left: auto;
+  white-space: nowrap;
+}
+
+.health-check-result-latency {
+  color: var(--on-dark);
+  font-weight: 600;
 }
 
 .badge-sm {
@@ -2078,6 +2079,10 @@ const FLAG_URL: Record<string, string> = {
   gap: var(--space-md);
 }
 
+.clip-card {
+  overflow: hidden;
+}
+
 .section-topbar {
   display: flex;
   align-items: flex-start;
@@ -2090,6 +2095,16 @@ const FLAG_URL: Record<string, string> = {
   color: var(--on-dark);
   font-size: 18px;
   margin-bottom: 4px;
+}
+
+.mode-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--info);
+  font-weight: 500;
+  vertical-align: middle;
 }
 
 .section-subtitle {
@@ -2273,7 +2288,7 @@ const FLAG_URL: Record<string, string> = {
 }
 
 .lang-usage-wrap {
-  padding-bottom: 4px;
+  padding-bottom: 2px;
 }
 
 .chart-label {
@@ -2780,6 +2795,10 @@ const FLAG_URL: Record<string, string> = {
   text-align: center;
   cursor: pointer;
   margin-top: var(--space-lg);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(148, 163, 184, 0.08);
   word-break: break-all;
   transition: opacity 0.15s;
 }
@@ -2793,15 +2812,16 @@ const FLAG_URL: Record<string, string> = {
 
 .cache-stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 1rem;
-  padding: 1rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem 1rem;
+  padding: 2rem 1rem;
+  text-align: center;
 }
 
 .cache-stat {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.4rem;
 }
 
 .cache-stat-label {
@@ -2940,6 +2960,18 @@ const FLAG_URL: Record<string, string> = {
 
 .form-group.compact {
   margin-bottom: var(--space-md);
+}
+
+.field-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.form-hint {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--body-muted, #6b7280);
+  margin-top: 3px;
 }
 
 .input-with-unit {
