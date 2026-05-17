@@ -229,7 +229,7 @@
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">内存占用</span>
-              <span class="cache-stat-value number">{{ (store.cacheStats.estimated_memory_bytes / 1024 / 1024).toFixed(1) }} MB<template v-if="store.cacheStats.max_memory_mb > 0"> / {{ store.cacheStats.max_memory_mb }} MB</template></span>
+              <span class="cache-stat-value number">{{ formatBytes(store.cacheStats.estimated_memory_bytes) }}<template v-if="store.cacheStats.max_memory_mb > 0"> / {{ store.cacheStats.max_memory_mb }} MB</template></span>
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">缓存时长</span>
@@ -1650,6 +1650,13 @@ async function saveSettings() {
 const _numFmt = new Intl.NumberFormat()
 function formatNumber(n: number) {
   return _numFmt.format(n)
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
 function formatTime(ts: string) {
