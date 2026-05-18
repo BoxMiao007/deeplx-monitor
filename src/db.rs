@@ -157,48 +157,24 @@ impl Database {
 
     pub fn get_requests(
         &self,
-        period_days: Option<u32>,
         page: u32,
         page_size: u32,
     ) -> SqliteResult<(Vec<RequestLog>, i64)> {
         let conn = self.conn.lock().unwrap();
         let offset = (page - 1) * page_size;
 
-        let (count_sql, data_sql) = if period_days.is_some() {
-            (
-                "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs
-                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')",
-                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
-                 FROM translation_logs
-                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-                 ORDER BY id DESC LIMIT ?2 OFFSET ?3",
-            )
-        } else {
-            (
-                "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs",
-                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
-                 FROM translation_logs ORDER BY id DESC LIMIT ?1 OFFSET ?2",
-            )
-        };
+        let mut stmt = conn.prepare_cached(
+            "SELECT COUNT(*) FROM translation_logs"
+        )?;
+        let total: i64 = stmt.query_row([], |row| row.get(0))?;
 
-        let total = if let Some(days) = period_days {
-            let mut stmt = conn.prepare_cached(count_sql)?;
-            stmt.query_row(params![days], |row| row.get::<_, i64>(0))?
-        } else {
-            let mut stmt = conn.prepare_cached(count_sql)?;
-            stmt.query_row([], |row| row.get::<_, i64>(0))?
-        };
-
+        let mut stmt = conn.prepare_cached(
+            "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
+             FROM translation_logs ORDER BY id DESC LIMIT ?1 OFFSET ?2"
+        )?;
+        let rows = stmt.query_map(params![page_size, offset], map_request_log)?;
         let mut logs = Vec::new();
-        if let Some(days) = period_days {
-            let mut stmt = conn.prepare_cached(data_sql)?;
-            let rows = stmt.query_map(params![days, page_size, offset], map_request_log)?;
-            for row in rows { logs.push(row?); }
-        } else {
-            let mut stmt = conn.prepare_cached(data_sql)?;
-            let rows = stmt.query_map(params![page_size, offset], map_request_log)?;
-            for row in rows { logs.push(row?); }
-        }
+        for row in rows { logs.push(row?); }
 
         Ok((logs, total))
     }

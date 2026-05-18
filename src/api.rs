@@ -111,7 +111,6 @@ pub async fn chart(State(state): State<AppState>) -> impl IntoResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct RequestsQuery {
-    pub period: Option<String>,
     pub page: Option<u32>,
     pub page_size: Option<u32>,
 }
@@ -128,19 +127,12 @@ pub async fn requests(
     State(state): State<AppState>,
     Query(query): Query<RequestsQuery>,
 ) -> impl IntoResponse {
-    let period_days = match query.period.as_deref() {
-        Some("today") => Some(1),
-        Some("week") => Some(7),
-        Some("month") => Some(30),
-        _ => None,
-    };
-
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(50).clamp(50, 200);
 
     let db = state.db.clone();
     let (items, total) = tokio::task::spawn_blocking(move || {
-        db.get_requests(period_days, page, page_size).unwrap_or((vec![], 0))
+        db.get_requests(page, page_size).unwrap_or((vec![], 0))
     }).await.unwrap_or((vec![], 0));
 
     Json(RequestsResponse {

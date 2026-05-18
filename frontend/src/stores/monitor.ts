@@ -189,7 +189,6 @@ export const useMonitorStore = defineStore('monitor', () => {
   const fullConfig = ref<FullConfig | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
-  const periodFilter = ref<string>('all')
   const autoRefreshInterval = ref<ReturnType<typeof setInterval> | null>(null)
 
   const healthStatus = computed(() => stats.value?.health ?? { status: 'unknown', latency_ms: null, checked_at: null, error: null })
@@ -260,9 +259,6 @@ export const useMonitorStore = defineStore('monitor', () => {
     try {
       error.value = null
       const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
-      if (periodFilter.value !== 'all') {
-        params.set('period', periodFilter.value)
-      }
       const res = await fetch(`/api/requests?${params}`)
       if (!res.ok) throw new Error('获取请求列表失败')
       requests.value = await res.json()
@@ -384,10 +380,6 @@ export const useMonitorStore = defineStore('monitor', () => {
     }
   }
 
-  function setPeriodFilter(p: string) {
-    periodFilter.value = p
-    return fetchRequests(1)
-  }
 
   async function fetchUpstreamStatus() {
     try {
@@ -512,7 +504,6 @@ export const useMonitorStore = defineStore('monitor', () => {
     fullConfig,
     loading,
     error,
-    periodFilter,
     healthStatus,
     config,
     period,
@@ -526,7 +517,6 @@ export const useMonitorStore = defineStore('monitor', () => {
     fetchFullConfig,
     updateConfig,
     updateFullConfig,
-    setPeriodFilter,
     fetchUpstreamStatus,
     fetchCacheStats,
     clearCache,

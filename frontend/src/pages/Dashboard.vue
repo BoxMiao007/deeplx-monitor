@@ -409,18 +409,10 @@
               <button :class="['log-tab', { active: logTab === 'requests' }]" @click="logTab = 'requests'">请求日志</button>
               <button :class="['log-tab', { active: logTab === 'cache-hits' }]" @click="switchToCacheHits">缓存命中</button>
             </div>
-            <p class="section-subtitle" v-if="logTab === 'requests'">可按周期筛选，并检查失败请求的错误信息展示</p>
+            <p class="section-subtitle" v-if="logTab === 'requests'">检查失败请求的错误信息展示</p>
             <p class="section-subtitle" v-else>最近 100 条缓存命中记录（仅保留在内存中）</p>
           </div>
           <div class="request-toolbar" v-if="logTab === 'requests'">
-            <div class="filter-group compact-scroll">
-              <button
-                v-for="p in periods"
-                :key="p.value"
-                :class="['filter-btn', { active: store.periodFilter === p.value }]"
-                @click="applyPeriodFilter(p.value)"
-              >{{ p.label }}</button>
-            </div>
             <label class="page-size-select">
               <span>每页</span>
               <select v-model="pageSize" @change="onPageSizeChange" class="input page-size-input">
@@ -855,12 +847,6 @@ const chartTabs = [
   { label: '30 天', value: 'daily' },
 ]
 
-const periods = [
-  { label: '全部', value: 'all' },
-  { label: '今日', value: 'today' },
-  { label: '近 7 天', value: 'week' },
-  { label: '近 30 天', value: 'month' },
-]
 
 const stats = computed(() => store.stats)
 const period = computed(() => store.period)
@@ -1681,10 +1667,6 @@ function switchToCacheHits() {
   store.fetchCacheHitLogs()
 }
 
-async function applyPeriodFilter(value: string) {
-  currentPage.value = 1
-  await store.setPeriodFilter(value)
-}
 
 async function onPageSizeChange() {
   currentPage.value = 1
@@ -2529,34 +2511,6 @@ const FLAG_URL: Record<string, string> = {
   justify-content: flex-end;
 }
 
-.filter-group {
-  display: inline-flex;
-  gap: var(--space-xs);
-}
-
-.filter-btn {
-  background: var(--surface-card-dark);
-  color: var(--body-muted);
-  border: 1px solid var(--hairline-on-dark);
-  border-radius: var(--radius-md);
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.filter-btn:hover {
-  color: var(--on-dark);
-  border-color: var(--muted-strong);
-}
-
-.filter-btn.active {
-  background: var(--primary);
-  color: var(--ink);
-  border-color: var(--primary);
-}
-
 .request-summary {
   display: flex;
   align-items: center;
@@ -2895,13 +2849,11 @@ const FLAG_URL: Record<string, string> = {
     align-items: stretch;
   }
 
-  .filter-group,
   .page-numbers,
   .chart-tabs {
     width: 100%;
   }
 
-  .filter-group,
   .page-numbers {
     padding-bottom: 4px;
   }
