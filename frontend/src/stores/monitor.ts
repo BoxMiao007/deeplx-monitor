@@ -176,6 +176,7 @@ export interface ErrorTrendPoint {
 }
 
 export const useMonitorStore = defineStore('monitor', () => {
+  const appVersion = ref('')
   const stats = ref<StatsResponse | null>(null)
   const chartData = ref<ChartData | null>(null)
   const langStats = ref<LangStat[]>([])
@@ -463,6 +464,17 @@ export const useMonitorStore = defineStore('monitor', () => {
     }
   }
 
+  async function fetchVersion() {
+    try {
+      const res = await fetch('/api/version')
+      if (!res.ok) return
+      const data = await res.json()
+      appVersion.value = data.version ?? ''
+    } catch {
+      // 版本获取失败不影响功能
+    }
+  }
+
   let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
   function startAutoRefresh(seconds: number, onRefresh?: () => Promise<void>) {
@@ -492,6 +504,7 @@ export const useMonitorStore = defineStore('monitor', () => {
   }
 
   return {
+    appVersion,
     stats,
     chartData,
     langStats,
@@ -507,6 +520,7 @@ export const useMonitorStore = defineStore('monitor', () => {
     healthStatus,
     config,
     period,
+    fetchVersion,
     fetchStats,
     fetchLangStats,
     fetchLangHourlyStats,

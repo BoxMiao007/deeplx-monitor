@@ -2,6 +2,13 @@
 
 DeepLX 翻译代理与监控面板。作为客户端与 DeepLX API 之间的中间层，支持多上游负载均衡、翻译缓存、请求日志记录，并提供 Vue 3 可视化面板。
 
+<p align="center">
+  <img src="Assets/1.png" width="24%" />
+  <img src="Assets/2.png" width="24%" />
+  <img src="Assets/3.png" width="24%" />
+  <img src="Assets/4.png" width="24%" />
+</p>
+
 ## 特性
 
 - 多上游端点负载均衡（round-robin + 故障转移）

@@ -10,6 +10,13 @@ use crate::db::{DailyStat, HourlyStat, HeatmapCell};
 use crate::state::{AppState, HealthStatus};
 use crate::utils::chrono_now;
 
+/// 返回编译时嵌入的版本号
+pub async fn version() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
 #[derive(Debug, Serialize)]
 pub struct StatsResponse {
     pub total_requests: i64,

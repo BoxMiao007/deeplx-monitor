@@ -167,6 +167,7 @@ async fn main() {
         .route("/api/cache/hits", get(api::cache_hit_logs))
         .route("/api/analytics/heatmap", get(api::heatmap))
         .route("/api/analytics/error-trend", get(api::error_trend))
+        .route("/api/version", get(api::version))
         .route("/api/export", get(api::export))
         .route("/favicon.svg", get(favicon_handler))
         .route("/", get(spa_handler))
