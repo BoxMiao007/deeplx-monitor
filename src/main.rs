@@ -82,6 +82,11 @@ async fn main() {
             state.cache.insert(text, src, tgt, json);
         }
         tracing::info!("Demo mode: pre-populated cache with {} entries", demo_translations.len());
+        // 触发缓存命中以填充命中日志
+        for (text, src, tgt, _) in demo_translations {
+            state.cache.get(text, src, tgt);
+        }
+        tracing::info!("Demo mode: seeded cache hit logs");
         state.load_balancer.seed_demo_stats().await;
         tracing::info!("Demo mode: seeded upstream endpoint stats");
     }
@@ -159,6 +164,7 @@ async fn main() {
         .route("/api/upstream/status", get(api::upstream_status))
         .route("/api/cache/stats", get(api::cache_stats))
         .route("/api/cache/clear", post(api::clear_cache))
+        .route("/api/cache/hits", get(api::cache_hit_logs))
         .route("/api/analytics/heatmap", get(api::heatmap))
         .route("/api/analytics/error-trend", get(api::error_trend))
         .route("/api/export", get(api::export))

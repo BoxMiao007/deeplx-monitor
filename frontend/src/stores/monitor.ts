@@ -101,6 +101,13 @@ export interface CacheStats {
   estimated_memory_bytes: number
 }
 
+export interface CacheHitEntry {
+  source_lang: string
+  target_lang: string
+  text_preview: string
+  timestamp: string
+}
+
 // 完整配置接口
 export interface FullEndpointInfo {
   name: string
@@ -176,6 +183,7 @@ export const useMonitorStore = defineStore('monitor', () => {
   const requests = ref<RequestsResponse | null>(null)
   const upstreamStatus = ref<EndpointStatus[]>([])
   const cacheStats = ref<CacheStats | null>(null)
+  const cacheHitLogs = ref<CacheHitEntry[]>([])
   const heatmapData = ref<HeatmapResponse | null>(null)
   const errorTrend = ref<ErrorTrendPoint[]>([])
   const fullConfig = ref<FullConfig | null>(null)
@@ -414,6 +422,16 @@ export const useMonitorStore = defineStore('monitor', () => {
     }
   }
 
+  async function fetchCacheHitLogs() {
+    try {
+      const res = await fetch('/api/cache/hits')
+      if (!res.ok) throw new Error('获取缓存命中日志失败')
+      cacheHitLogs.value = await res.json()
+    } catch (e) {
+      error.value = (e as Error).message
+    }
+  }
+
   async function fetchHeatmap(view = 'weekday', days = 30) {
     try {
       const res = await fetch(`/api/analytics/heatmap?view=${view}&days=${days}`)
@@ -512,6 +530,8 @@ export const useMonitorStore = defineStore('monitor', () => {
     fetchUpstreamStatus,
     fetchCacheStats,
     clearCache,
+    cacheHitLogs,
+    fetchCacheHitLogs,
     fetchHeatmap,
     fetchErrorTrend,
     exportLogs,

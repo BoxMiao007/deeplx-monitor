@@ -467,6 +467,10 @@ pub async fn clear_cache(State(state): State<AppState>) -> impl IntoResponse {
     Json(serde_json::json!({"ok": true})).into_response()
 }
 
+pub async fn cache_hit_logs(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.cache.hit_log()).into_response()
+}
+
 #[derive(Debug, Deserialize)]
 pub struct HeatmapQuery {
     pub view: Option<String>,

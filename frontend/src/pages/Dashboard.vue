@@ -64,7 +64,7 @@
             <span class="stat-label">总调用次数</span>
             <span class="stat-trend">累计总数</span>
           </div>
-          <div class="stat-value number">{{ formatNumber(stats?.total_requests ?? 0) }}</div>
+          <div ref="statRequestsEl" class="stat-value number clickable" @click="toggleStatDisplay" :title="showFullStat ? '点击切换缩写' : '点击显示完整数值'">{{ showFullStat ? formatNumber(stats?.total_requests ?? 0) : formatCompactNumber(stats?.total_requests ?? 0) }}</div>
           <div class="mini-chart-caption">{{ miniChartCaption }}</div>
           <div class="mini-chart-wrap"><canvas ref="countMiniChartCanvas"></canvas></div>
         </article>
@@ -74,7 +74,7 @@
             <span class="stat-label">总字符数</span>
             <span class="stat-trend">累计总数</span>
           </div>
-          <div class="stat-value number">{{ formatNumber(stats?.total_chars ?? 0) }}</div>
+          <div ref="statCharsEl" class="stat-value number clickable" @click="toggleStatDisplay" :title="showFullStat ? '点击切换缩写' : '点击显示完整数值'">{{ showFullStat ? formatNumber(stats?.total_chars ?? 0) : formatCompactNumber(stats?.total_chars ?? 0) }}</div>
           <div class="mini-chart-caption">{{ miniChartCaption }}</div>
           <div class="mini-chart-wrap"><canvas ref="charsMiniChartCanvas"></canvas></div>
         </article>
@@ -405,10 +405,14 @@
       <section class="card section-card request-card">
         <div class="section-topbar request-topbar">
           <div>
-            <h2 class="section-title">请求日志</h2>
-            <p class="section-subtitle">可按周期筛选，并检查失败请求的错误信息展示</p>
+            <div class="log-tabs">
+              <button :class="['log-tab', { active: logTab === 'requests' }]" @click="logTab = 'requests'">请求日志</button>
+              <button :class="['log-tab', { active: logTab === 'cache-hits' }]" @click="switchToCacheHits">缓存命中</button>
+            </div>
+            <p class="section-subtitle" v-if="logTab === 'requests'">可按周期筛选，并检查失败请求的错误信息展示</p>
+            <p class="section-subtitle" v-else>最近 100 条缓存命中记录（仅保留在内存中）</p>
           </div>
-          <div class="request-toolbar">
+          <div class="request-toolbar" v-if="logTab === 'requests'">
             <div class="filter-group compact-scroll">
               <button
                 v-for="p in periods"
@@ -433,69 +437,111 @@
           </div>
         </div>
 
-        <div class="request-summary">
-          <span class="table-count">共 {{ store.requests?.total ?? 0 }} 条</span>
-          <span class="table-count text-muted">当前第 {{ currentPage }} / {{ totalPages }} 页</span>
-        </div>
-
-        <div class="table-scroll">
-          <table class="request-table">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>源语言</th>
-                <th>源字符</th>
-                <th>目标语言</th>
-                <th>目标字符</th>
-                <th>状态</th>
-                <th>错误</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="!items.length">
-                <td colspan="7" class="text-center text-muted">暂无数据</td>
-              </tr>
-              <tr v-for="item in items" :key="item.id">
-                <td class="number time-cell">{{ formatTime(item.created_at) }}</td>
-                <td>
-                  <div class="lang-cell">
-                    <img v-if="langFlagUrl(item.source_lang)" :src="langFlagUrl(item.source_lang)" width="20" height="14" class="flag-img">
-                    <span>{{ langFullName(item.source_lang) }}</span>
-                  </div>
-                </td>
-                <td class="number">{{ formatNumber(item.source_chars) }}</td>
-                <td>
-                  <div class="lang-cell">
-                    <img v-if="langFlagUrl(item.target_lang)" :src="langFlagUrl(item.target_lang)" width="20" height="14" class="flag-img">
-                    <span>{{ langFullName(item.target_lang) }}</span>
-                  </div>
-                </td>
-                <td class="number">{{ formatNumber(item.target_chars) }}</td>
-                <td>
-                  <span :class="['badge', 'status-badge', item.status === 'success' ? 'badge-success' : 'badge-error']">
-                    {{ item.status === 'success' ? '成功' : '失败' }}
-                  </span>
-                </td>
-                <td><span class="error-message" :title="item.error_msg || '-'">{{ item.error_msg || '-' }}</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="pagination-bar">
-          <button class="btn-secondary btn-sm" :disabled="currentPage <= 1" @click="changePage(1)">首页</button>
-          <button class="btn-secondary btn-sm" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">上一页</button>
-          <div class="page-numbers compact-scroll">
-            <button
-              v-for="p in pageNumbers"
-              :key="p"
-              :class="['btn-page', { active: p === currentPage }]"
-              @click="changePage(p)"
-            >{{ p }}</button>
+        <template v-if="logTab === 'requests'">
+          <div class="request-summary">
+            <span class="table-count">共 {{ store.requests?.total ?? 0 }} 条</span>
+            <span class="table-count text-muted">当前第 {{ currentPage }} / {{ totalPages }} 页</span>
           </div>
-          <button class="btn-secondary btn-sm" :disabled="currentPage >= totalPages" @click="changePage(currentPage + 1)">下一页</button>
-          <button class="btn-secondary btn-sm" :disabled="currentPage >= totalPages" @click="changePage(totalPages)">末页</button>
-        </div>
+
+          <div class="table-scroll">
+            <table class="request-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>源语言</th>
+                  <th>源字符</th>
+                  <th>目标语言</th>
+                  <th>目标字符</th>
+                  <th>状态</th>
+                  <th>错误</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!items.length">
+                  <td colspan="7" class="text-center text-muted">暂无数据</td>
+                </tr>
+                <tr v-for="item in items" :key="item.id">
+                  <td class="number time-cell">{{ formatTime(item.created_at) }}</td>
+                  <td>
+                    <div class="lang-cell">
+                      <img v-if="langFlagUrl(item.source_lang)" :src="langFlagUrl(item.source_lang)" width="20" height="14" class="flag-img">
+                      <span>{{ langFullName(item.source_lang) }}</span>
+                    </div>
+                  </td>
+                  <td class="number">{{ formatNumber(item.source_chars) }}</td>
+                  <td>
+                    <div class="lang-cell">
+                      <img v-if="langFlagUrl(item.target_lang)" :src="langFlagUrl(item.target_lang)" width="20" height="14" class="flag-img">
+                      <span>{{ langFullName(item.target_lang) }}</span>
+                    </div>
+                  </td>
+                  <td class="number">{{ formatNumber(item.target_chars) }}</td>
+                  <td>
+                    <span :class="['badge', 'status-badge', item.status === 'success' ? 'badge-success' : 'badge-error']">
+                      {{ item.status === 'success' ? '成功' : '失败' }}
+                    </span>
+                  </td>
+                  <td><span class="error-message" :title="item.error_msg || '-'">{{ item.error_msg || '-' }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pagination-bar">
+            <button class="btn-secondary btn-sm" :disabled="currentPage <= 1" @click="changePage(1)">首页</button>
+            <button class="btn-secondary btn-sm" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">上一页</button>
+            <div class="page-numbers compact-scroll">
+              <button
+                v-for="p in pageNumbers"
+                :key="p"
+                :class="['btn-page', { active: p === currentPage }]"
+                @click="changePage(p)"
+              >{{ p }}</button>
+            </div>
+            <button class="btn-secondary btn-sm" :disabled="currentPage >= totalPages" @click="changePage(currentPage + 1)">下一页</button>
+            <button class="btn-secondary btn-sm" :disabled="currentPage >= totalPages" @click="changePage(totalPages)">末页</button>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="request-summary">
+            <span class="table-count">共 {{ store.cacheHitLogs.length }} 条</span>
+          </div>
+
+          <div class="table-scroll">
+            <table class="request-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>源语言</th>
+                  <th>目标语言</th>
+                  <th>文本预览</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!store.cacheHitLogs.length">
+                  <td colspan="4" class="text-center text-muted">暂无缓存命中记录</td>
+                </tr>
+                <tr v-for="(hit, idx) in store.cacheHitLogs" :key="idx">
+                  <td class="number time-cell">{{ formatTime(hit.timestamp) }}</td>
+                  <td>
+                    <div class="lang-cell">
+                      <img v-if="langFlagUrl(hit.source_lang)" :src="langFlagUrl(hit.source_lang)" width="20" height="14" class="flag-img">
+                      <span>{{ langFullName(hit.source_lang) }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="lang-cell">
+                      <img v-if="langFlagUrl(hit.target_lang)" :src="langFlagUrl(hit.target_lang)" width="20" height="14" class="flag-img">
+                      <span>{{ langFullName(hit.target_lang) }}</span>
+                    </div>
+                  </td>
+                  <td><span class="text-preview" :title="hit.text_preview">{{ hit.text_preview }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
       </section>
     </div>
 
@@ -688,6 +734,8 @@ async function ensureChartJs() {
 
 const store = useMonitorStore()
 const checking = ref(false)
+const logTab = ref<'requests' | 'cache-hits'>('requests')
+const showFullStat = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(50)
 const activeChartTab = ref('hourly')
@@ -741,6 +789,8 @@ const charsChartCanvas = ref<HTMLCanvasElement | null>(null)
 const langUsageTrendCanvas = ref<HTMLCanvasElement | null>(null)
 const countMiniChartCanvas = ref<HTMLCanvasElement | null>(null)
 const charsMiniChartCanvas = ref<HTMLCanvasElement | null>(null)
+const statRequestsEl = ref<HTMLElement | null>(null)
+const statCharsEl = ref<HTMLElement | null>(null)
 const errorTrendCanvas = ref<HTMLCanvasElement | null>(null)
 const errorTrendDays = ref(7)
 const heatmapView = ref('weekday')
@@ -1367,7 +1417,48 @@ function formatCompactNumber(value: number) {
   return `${value}`
 }
 
+function toggleStatDisplay() {
+  showFullStat.value = !showFullStat.value
+  for (const el of [statRequestsEl.value, statCharsEl.value]) {
+    if (el) el.style.fontSize = ''
+  }
+  nextTick(() => {
+    requestAnimationFrame(fitStatFontSize)
+  })
+}
 
+function fitStatFontSize() {
+  for (const el of [statRequestsEl.value, statCharsEl.value]) {
+    if (!el) continue
+    if (el.scrollWidth <= el.clientWidth) continue
+    const currentSize = parseInt(getComputedStyle(el).fontSize) || 44
+    // 用比例估算起点，然后向上微调找到刚好不溢出的最大字号
+    const ratio = el.clientWidth / el.scrollWidth
+    let size = Math.max(16, Math.round(currentSize * ratio))
+    el.style.fontSize = `${size}px`
+    // 向上逐步放大直到溢出
+    while (el.scrollWidth <= el.clientWidth && size < currentSize) {
+      size++
+      el.style.fontSize = `${size}px`
+    }
+    // 如果溢出了，回退一步
+    if (el.scrollWidth > el.clientWidth) {
+      size--
+      el.style.fontSize = `${size}px`
+    }
+  }
+}
+
+let _prevStatLen = 0
+watch(() => store.stats, () => {
+  if (!showFullStat.value) return
+  const s = store.stats
+  const len = formatNumber(s?.total_requests ?? 0).length + formatNumber(s?.total_chars ?? 0).length
+  if (len !== _prevStatLen) {
+    _prevStatLen = len
+    nextTick(() => requestAnimationFrame(fitStatFontSize))
+  }
+})
 
 async function refreshMainPanels() {
   await Promise.all([
@@ -1583,6 +1674,11 @@ function manualToastStyle(index: number) {
 
 async function onLangRangeChange() {
   await refreshLangPanels()
+}
+
+function switchToCacheHits() {
+  logTab.value = 'cache-hits'
+  store.fetchCacheHitLogs()
 }
 
 async function applyPeriodFilter(value: string) {
@@ -1979,6 +2075,17 @@ const FLAG_URL: Record<string, string> = {
   margin-bottom: var(--space-sm);
 }
 
+.stat-value.clickable {
+  cursor: pointer;
+  transition: opacity 0.15s, font-size 0.15s;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.stat-value.clickable:hover {
+  opacity: 0.7;
+}
+
 .mini-chart-caption {
   color: var(--body-muted);
   font-size: 12px;
@@ -2370,6 +2477,48 @@ const FLAG_URL: Record<string, string> = {
 
 .request-topbar {
   align-items: center;
+}
+
+.log-tabs {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--surface-card-dark);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  border: 1px solid var(--hairline-on-dark);
+}
+
+.log-tab {
+  background: transparent;
+  color: var(--body-muted);
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.log-tab:hover {
+  color: var(--on-dark);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.log-tab.active {
+  background: var(--primary);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.text-preview {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--body-muted);
 }
 
 .request-toolbar {

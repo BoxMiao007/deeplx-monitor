@@ -1,7 +1,8 @@
 use arc_swap::ArcSwap;
 use sha2::{Digest, Sha256};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -22,6 +23,16 @@ pub struct CachedTranslation {
     pub response_json: serde_json::Value,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct CacheHitEntry {
+    pub source_lang: String,
+    pub target_lang: String,
+    pub text_preview: String,
+    pub timestamp: String,
+}
+
+const MAX_HIT_LOG: usize = 100;
+
 pub struct TranslationCache {
     cache: ArcSwap<moka::sync::Cache<String, CachedTranslation>>,
     hits: AtomicU64,
@@ -30,6 +41,7 @@ pub struct TranslationCache {
     max_entries: AtomicU64,
     ttl_secs: AtomicU64,
     max_memory_mb: AtomicU64,
+    hit_log: Mutex<VecDeque<CacheHitEntry>>,
 }
 
 impl TranslationCache {
@@ -44,6 +56,7 @@ impl TranslationCache {
             max_entries: AtomicU64::new(max_entries),
             ttl_secs: AtomicU64::new(ttl_secs),
             max_memory_mb: AtomicU64::new(max_memory_mb),
+            hit_log: Mutex::new(VecDeque::with_capacity(MAX_HIT_LOG)),
         })
     }
 
@@ -113,12 +126,35 @@ impl TranslationCache {
         match cache_guard.get(&key) {
             Some(entry) => {
                 self.hits.fetch_add(1, Ordering::Relaxed);
+                // 记录命中日志
+                let preview: String = text.chars().take(50).collect();
+                let log_entry = CacheHitEntry {
+                    source_lang: source_lang.to_string(),
+                    target_lang: target_lang.to_string(),
+                    text_preview: preview,
+                    timestamp: crate::utils::chrono_now(),
+                };
+                if let Ok(mut log) = self.hit_log.lock() {
+                    if log.len() >= MAX_HIT_LOG {
+                        log.pop_front();
+                    }
+                    log.push_back(log_entry);
+                }
                 Some(entry)
             }
             None => {
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 None
             }
+        }
+    }
+
+    /// 获取缓存命中日志（最近 100 条，按时间倒序）
+    pub fn hit_log(&self) -> Vec<CacheHitEntry> {
+        if let Ok(log) = self.hit_log.lock() {
+            log.iter().rev().cloned().collect()
+        } else {
+            Vec::new()
         }
     }
 
