@@ -40,3 +40,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: 设置抽屉版本号与 GitHub 图标
+
+**Date**: 2026-05-19
+**Task**: 设置抽屉版本号与 GitHub 图标
+**Branch**: `main`
+
+### Summary
+
+实现设置抽屉显示版本号和 GitHub 跳转图标，新增 /api/version 端点，升级版本至 v1.1.4，添加 README 截图
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `538b7c0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
