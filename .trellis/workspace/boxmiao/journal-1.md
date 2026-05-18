@@ -73,3 +73,37 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: 版本号显示、GitHub 图标、Release 工作流
+
+**Date**: 2026-05-19
+**Task**: 版本号显示、GitHub 图标、Release 工作流
+**Branch**: `main`
+
+### Summary
+
+设置抽屉添加版本号和 GitHub 跳转图标，升级至 v1.1.4，添加 README 截图，新增 Release 工作流自动发布 GitHub Release
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `538b7c0` | (see git log) |
+| `06686ae` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
