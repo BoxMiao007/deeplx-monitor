@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/05-18-github-actions-zip/prd.md", "reason": "Acceptance criteria to verify against"}
+{"file": "Cargo.toml", "reason": "Verify binary name matches workflow artifact naming"}

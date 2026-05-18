@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Need to know where to place new modules (upstream.rs, cache.rs)"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error handling patterns for upstream failover and cache errors"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "DB patterns for new analytics queries (heatmap, error trends, export)"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Code quality standards for new trait abstractions and implementations"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Frontend-backend contract design for new API endpoints"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Reuse patterns for trait abstractions (TranslationBackend, TranslationCache)"}
