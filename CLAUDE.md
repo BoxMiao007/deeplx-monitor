@@ -46,7 +46,7 @@ Client ──POST /translate──► proxy.rs ──► LoadBalancer ──► 
 - **`main.rs`**: Axum router setup, SPA/asset handlers, background tasks (log cleanup, endpoint probing, config file watcher). Listens on address from `config.toml` `[proxy]` section.
 - **`proxy.rs`**: `/translate` handler — checks cache, selects upstream via LoadBalancer, forwards request, measures latency, logs result to DB.
 - **`api.rs`**: All `/api/*` endpoints — stats, charts, request logs, health check, full config CRUD, upstream status, cache stats, analytics (heatmap, error trend), data export.
-- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Tables: `stats_anchor` (cumulative counters) and `translation_logs` (per-request rows).
+- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Tables: `translation_logs` (per-request rows, stats computed in real-time) and `stats_anchor` (cache hit/miss counters only).
 - **`state.rs`**: `AppState` holds `Arc<RwLock<Config>>`, `Arc<Database>`, `Arc<RwLock<HealthStatus>>`, `Arc<LoadBalancer>`, `Arc<TranslationCache>`, `reqwest::Client`.
 - **`config.rs`**: TOML config with sections: `[upstream]`, `[proxy]`, `[monitor]`, `[health_check]`, `[cache]`, `[demo]`. Includes `watch_config_file()` for hot-reload via `notify`.
 - **`upstream.rs`**: Multi-endpoint load balancer (round-robin + failover). Supports runtime `reload()` when config changes.
@@ -169,7 +169,7 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **deeplx-monitor** (839 symbols, 1371 relationships, 38 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **deeplx-monitor** (838 symbols, 1368 relationships, 38 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
