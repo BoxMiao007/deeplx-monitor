@@ -78,9 +78,9 @@ npm run dev
 |--------|------|
 | `[upstream]` | 端点列表、最大失败次数、探活间隔 |
 | `[proxy]` | 监听地址和端口（需重启生效） |
-| `[monitor]` | 自动刷新间隔、日志保留天数 |
+| `[monitor]` | 自动刷新间隔、最大日志条数 |
 | `[health_check]` | 健康检查使用的源/目标语言 |
-| `[cache]` | 缓存开关、TTL、最大条目数 |
+| `[cache]` | 缓存开关、TTL、最大条目数、内存限制 |
 | `[demo]` | 演示模式开关和种子 |
 
 ## 演示模式
@@ -111,6 +111,8 @@ seed = 20260511
 | GET | `/api/lang-hourly-stats` | 语言小时统计 |
 | GET | `/api/upstream/status` | 上游端点状态 |
 | GET | `/api/cache/stats` | 缓存统计 |
+| POST | `/api/cache/clear` | 清空缓存 |
+| GET | `/api/cache/hits` | 缓存命中日志（最近 100 条） |
 | GET | `/api/analytics/heatmap` | 活动热力图 |
 | GET | `/api/analytics/error-trend` | 错误率趋势 |
 | GET | `/api/export` | 数据导出（CSV/JSON） |
