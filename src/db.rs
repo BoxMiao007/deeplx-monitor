@@ -87,14 +87,14 @@ impl Database {
 
         conn.execute(
             "INSERT OR IGNORE INTO stats_anchor (id, total_requests, total_chars, anchor_date)
-             VALUES (1, 0, 0, date('now', 'localtime'))",
+             VALUES (1, 0, 0, '')",
             [],
         )?;
 
         Ok(())
     }
 
-    pub fn log_and_increment(
+    pub fn log_translation(
         &self,
         source_lang: &str,
         target_lang: &str,
@@ -104,40 +104,14 @@ impl Database {
         error_msg: Option<&str>,
     ) -> SqliteResult<i64> {
         let conn = self.conn.lock().unwrap();
-        conn.execute_batch("BEGIN")?;
-        let result = (|| {
-            conn.execute(
-                "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg)
-                 VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6)",
-                params![source_chars, source_lang, target_lang, target_chars, status, error_msg],
-            )?;
-            let row_id = conn.last_insert_rowid();
-            conn.execute(
-                "UPDATE stats_anchor SET total_requests = total_requests + 1, total_chars = total_chars + ?1 WHERE id = 1",
-                params![source_chars],
-            )?;
-            Ok(row_id)
-        })();
-        match &result {
-            Ok(_) => { conn.execute_batch("COMMIT")?; }
-            Err(_) => { let _ = conn.execute_batch("ROLLBACK"); }
-        }
-        result
+        conn.execute(
+            "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg)
+             VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6)",
+            params![source_chars, source_lang, target_lang, target_chars, status, error_msg],
+        )?;
+        Ok(conn.last_insert_rowid())
     }
 
-    pub fn get_total_stats(&self) -> SqliteResult<(i64, i64, String)> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT total_requests, total_chars, anchor_date FROM stats_anchor WHERE id = 1",
-        )?;
-        stmt.query_row([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })
-    }
 
     pub fn save_cache_stats(&self, hits: u64, misses: u64) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
@@ -229,27 +203,24 @@ impl Database {
         Ok((logs, total))
     }
 
-    pub fn cleanup_old_logs(&self, retention_days: u32) -> SqliteResult<i64> {
+    pub fn cleanup_old_logs(&self, max_entries: u32) -> SqliteResult<i64> {
         let conn = self.conn.lock().unwrap();
 
-        let mut stmt = conn.prepare_cached(
-            "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs
-             WHERE created_at < datetime('now', '-' || ?1 || ' days', 'localtime')"
-        )?;
-        let (count, chars): (i64, i64) = stmt.query_row(params![retention_days], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let total_count: i64 = conn.prepare_cached(
+            "SELECT COUNT(*) FROM translation_logs"
+        )?.query_row([], |row| row.get(0))?;
 
-        if count > 0 {
-            conn.execute(
-                "UPDATE stats_anchor SET total_requests = total_requests + ?1, total_chars = total_chars + ?2 WHERE id = 1",
-                params![count, chars],
-            )?;
-            conn.execute(
-                "DELETE FROM translation_logs WHERE created_at < datetime('now', '-' || ?1 || ' days', 'localtime')",
-                params![retention_days],
-            )?;
+        let to_delete = total_count - max_entries as i64;
+        if to_delete <= 0 {
+            return Ok(0);
         }
 
-        Ok(count)
+        conn.execute(
+            "DELETE FROM translation_logs WHERE id IN (SELECT id FROM translation_logs ORDER BY id ASC LIMIT ?1)",
+            params![to_delete],
+        )?;
+
+        Ok(to_delete)
     }
 
     pub fn replace_with_demo_data(&self, seed: u64) -> SqliteResult<()> {
@@ -257,7 +228,7 @@ impl Database {
         conn.execute("DELETE FROM translation_logs", [])?;
         conn.execute("DELETE FROM sqlite_sequence WHERE name = 'translation_logs'", [])?;
         conn.execute(
-            "UPDATE stats_anchor SET total_requests = 0, total_chars = 0, anchor_date = date('now', 'localtime') WHERE id = 1",
+            "UPDATE stats_anchor SET cache_hits = 0, cache_misses = 0 WHERE id = 1",
             [],
         )?;
 

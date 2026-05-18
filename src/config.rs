@@ -68,12 +68,12 @@ fn default_proxy_port() -> u16 {
 pub struct MonitorConfig {
     #[serde(default)]
     pub auto_refresh_seconds: u64,
-    #[serde(default = "default_retention_days")]
-    pub retention_days: u32,
+    #[serde(default = "default_max_log_entries")]
+    pub max_log_entries: u32,
 }
 
-fn default_retention_days() -> u32 {
-    365
+fn default_max_log_entries() -> u32 {
+    10000
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -161,7 +161,7 @@ impl Default for MonitorConfig {
     fn default() -> Self {
         Self {
             auto_refresh_seconds: 0,
-            retention_days: default_retention_days(),
+            max_log_entries: default_max_log_entries(),
         }
     }
 }

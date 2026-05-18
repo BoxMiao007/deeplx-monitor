@@ -619,8 +619,8 @@
                 <input v-model.number="settingsFullForm.monitor.auto_refresh_seconds" type="number" class="input" min="0">
               </div>
               <div class="form-group compact">
-                <label class="form-label">日志保留天数</label>
-                <input v-model.number="settingsFullForm.monitor.retention_days" type="number" class="input" min="1">
+                <label class="form-label">最大日志条数</label>
+                <input v-model.number="settingsFullForm.monitor.max_log_entries" type="number" class="input" min="1">
               </div>
             </div>
           </div>
@@ -762,7 +762,7 @@ const settingsDirty = computed(() => {
 const settingsFullForm = reactive<FullConfig>({
   upstream: { endpoints: [], max_failures: 3, probe_interval_secs: 60 },
   proxy: { host: '127.0.0.1', port: 5555 },
-  monitor: { auto_refresh_seconds: 0, retention_days: 365 },
+  monitor: { auto_refresh_seconds: 0, max_log_entries: 10000 },
   health_check: { source_lang: 'EN', target_lang: 'ZH' },
   cache: { enabled: false, ttl_secs: 3600, max_entries: 10000, max_memory_mb: 0 },
   demo: { enabled: false, seed: 20260511 },
@@ -1504,7 +1504,7 @@ async function openSettings() {
     settingsFullForm.proxy.host = cfg.proxy.host
     settingsFullForm.proxy.port = cfg.proxy.port
     settingsFullForm.monitor.auto_refresh_seconds = cfg.monitor.auto_refresh_seconds
-    settingsFullForm.monitor.retention_days = cfg.monitor.retention_days
+    settingsFullForm.monitor.max_log_entries = cfg.monitor.max_log_entries
     settingsFullForm.health_check.source_lang = cfg.health_check.source_lang
     settingsFullForm.health_check.target_lang = cfg.health_check.target_lang
     settingsFullForm.cache.enabled = cfg.cache.enabled

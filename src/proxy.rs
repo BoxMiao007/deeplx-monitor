@@ -200,7 +200,7 @@ pub async fn translate(
                 let log_src = log_source.clone();
                 let tgt_lang = target_lang.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = db.log_and_increment(&log_src, &tgt_lang, source_chars, target_chars, "success", None) {
+                    if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, target_chars, "success", None) {
                         tracing::warn!("Failed to log translation: {}", e);
                     }
                 });
@@ -218,7 +218,7 @@ pub async fn translate(
                 let tgt_lang = target_lang.clone();
                 let err_clone = err.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = db.log_and_increment(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone)) {
+                    if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone)) {
                         tracing::warn!("Failed to log translation: {}", e);
                     }
                 });
@@ -232,7 +232,7 @@ pub async fn translate(
             let tgt_lang = target_lang.clone();
             let err_clone = err.clone();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = db.log_and_increment(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone)) {
+                if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone)) {
                     tracing::warn!("Failed to log translation: {}", e);
                 }
             });

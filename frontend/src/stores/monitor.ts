@@ -128,7 +128,7 @@ export interface FullProxyInfo {
 
 export interface FullMonitorInfo {
   auto_refresh_seconds: number
-  retention_days: number
+  max_log_entries: number
 }
 
 export interface FullHealthCheckInfo {
@@ -334,7 +334,7 @@ export const useMonitorStore = defineStore('monitor', () => {
       if (payload.auto_refresh_seconds !== undefined) {
         body.monitor = {
           auto_refresh_seconds: payload.auto_refresh_seconds,
-          retention_days: fullConfig.value?.monitor.retention_days ?? 365,
+          max_log_entries: fullConfig.value?.monitor.max_log_entries ?? 10000,
         }
       }
       const res = await fetch('/api/config', {

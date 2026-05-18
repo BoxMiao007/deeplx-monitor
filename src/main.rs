@@ -91,14 +91,14 @@ async fn main() {
         tracing::info!("Demo mode: seeded upstream endpoint stats");
     }
 
-    // 后台定时清理过期日志（每小时一次，动态读取 retention_days）
+    // 后台定时清理超限日志（每小时一次，动态读取 max_log_entries）
     let cleanup_db = Arc::clone(&state.db);
     let config_for_cleanup = Arc::clone(&state.config);
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-            let days = config_for_cleanup.read().await.monitor.retention_days;
-            match cleanup_db.cleanup_old_logs(days) {
+            let max_entries = config_for_cleanup.read().await.monitor.max_log_entries;
+            match cleanup_db.cleanup_old_logs(max_entries) {
                 Ok(count) if count > 0 => {
                     tracing::info!("Cleaned up {} old log entries", count);
                 }

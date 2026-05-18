@@ -64,9 +64,7 @@ pub async fn stats(
         let total = if let Some(days) = query_days {
             db.get_period_stats(days).unwrap_or((0, 0))
         } else {
-            let (anchor_requests, anchor_chars, _) = db.get_total_stats().unwrap_or((0, 0, String::new()));
-            let (log_requests, log_chars) = db.get_current_log_totals().unwrap_or((0, 0));
-            (anchor_requests + log_requests, anchor_chars + log_chars)
+            db.get_current_log_totals().unwrap_or((0, 0))
         };
         (today, week, month, total)
     }).await.unwrap_or(((0,0), (0,0), (0,0), (0,0)));
@@ -268,7 +266,7 @@ pub struct ProxyInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MonitorInfo {
     pub auto_refresh_seconds: u64,
-    pub retention_days: u32,
+    pub max_log_entries: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -308,7 +306,7 @@ fn config_to_full_info(config: &crate::config::Config) -> FullConfigInfo {
         },
         monitor: MonitorInfo {
             auto_refresh_seconds: config.monitor.auto_refresh_seconds,
-            retention_days: config.monitor.retention_days,
+            max_log_entries: config.monitor.max_log_entries,
         },
         health_check: HealthCheckInfo {
             source_lang: config.health_check.source_lang.clone(),
@@ -365,7 +363,7 @@ pub async fn update_config(
     }
     if let Some(monitor) = payload.monitor {
         config.monitor.auto_refresh_seconds = monitor.auto_refresh_seconds;
-        config.monitor.retention_days = monitor.retention_days;
+        config.monitor.max_log_entries = monitor.max_log_entries;
     }
     if let Some(health_check) = payload.health_check {
         config.health_check.source_lang = health_check.source_lang;
