@@ -12,6 +12,29 @@ DeepLX 翻译代理与监控面板。作为客户端与 DeepLX API 之间的中�
 - 数据导出（CSV / JSON）
 - 演示模式（一键生成假数据用于 UI 验收）
 
+## 项目结构
+
+```
+src/
+├── main.rs       # Axum 路由、SPA 静态资源、后台任务
+├── proxy.rs      # /translate 翻译代理（负载均衡 + 缓存）
+├── api.rs        # /api/* 监控与配置接口
+├── db.rs         # SQLite 数据库操作
+├── config.rs     # TOML 配置管理 + 热加载监听
+├── state.rs      # 应用状态（Config + DB + Health + Cache + LB）
+├── upstream.rs   # 多上游负载均衡与故障转移
+├── cache.rs      # 翻译缓存（LRU + TTL）
+└── utils.rs      # 工具函数
+
+frontend/
+├── src/
+│   ├── pages/
+│   │   └── Dashboard.vue   # 监控面板（含设置抽屉）
+│   ├── stores/monitor.ts   # Pinia 状态管理
+│   └── App.vue             # 根组件
+└── vite.config.ts          # Vite 配置，含 API 代理
+```
+
 ## 技术栈
 
 - **后端**: Rust (Axum + Tokio), SQLite (rusqlite), rust-embed, moka (缓存), notify (文件监听)
@@ -126,32 +149,36 @@ docker compose build        # 仅重新构建
 
 多阶段构建：Node.js 构建前端，Rust 编译后端。挂载 `config.toml` 作为配置卷。
 
-## 项目结构
+## 构建发布版本
 
-```
-src/
-├── main.rs       # Axum 路由、SPA 静态资源、后台任务
-├── proxy.rs      # /translate 翻译代理（负载均衡 + 缓存）
-├── api.rs        # /api/* 监控与配置接口
-├── db.rs         # SQLite 数据库操作
-├── config.rs     # TOML 配置管理 + 热加载监听
-├── state.rs      # 应用状态（Config + DB + Health + Cache + LB）
-├── upstream.rs   # 多上游负载均衡与故障转移
-├── cache.rs      # 翻译缓存（LRU + TTL）
-└── utils.rs      # 工具函数
+### Linux
 
-frontend/
-├── src/
-│   ├── pages/
-│   │   └── Dashboard.vue   # 监控面板（含设置抽屉）
-│   ├── stores/monitor.ts   # Pinia 状态管理
-│   └── App.vue             # 根组件
-└── vite.config.ts          # Vite 配置，含 API 代理
+```bash
+cd frontend && npm install && npm run build && cd ..
+cargo build --release
 ```
 
-## 构建 Windows 二进制
+产物位于 `target/release/deeplx_monitor`。
 
-### 从 Linux 交叉编译
+### macOS
+
+```bash
+cd frontend && npm install && npm run build && cd ..
+cargo build --release
+```
+
+产物位于 `target/release/deeplx_monitor`。
+
+如需交叉编译 Apple Silicon (aarch64)：
+
+```bash
+rustup target add aarch64-apple-darwin
+cargo build --release --target aarch64-apple-darwin
+```
+
+### Windows
+
+#### 从 Linux 交叉编译
 
 ```bash
 rustup target add x86_64-pc-windows-gnu
@@ -163,7 +190,7 @@ cargo build --release --target x86_64-pc-windows-gnu
 
 产物位于 `target/x86_64-pc-windows-gnu/release/deeplx_monitor.exe`。
 
-### 在 Windows 上原生构建
+#### 在 Windows 上原生构建
 
 ```powershell
 cd frontend && npm install && npm run build && cd ..
@@ -174,4 +201,4 @@ cargo build --release
 
 ### 分发
 
-打包 `deeplx_monitor.exe` + `config.toml.example`，用户复制为 `config.toml` 后填写即可运行。
+打包二进制文件 + `config.toml.example`，用户复制为 `config.toml` 后填写即可运行。
