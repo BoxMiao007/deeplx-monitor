@@ -239,3 +239,36 @@ health_check API 改用 check_all() 探测所有端点并立即刷新前端状�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 修复前端 UI 三个问题
+
+**Date**: 2026-05-20
+**Task**: 修复前端 UI 三个问题
+**Branch**: `main`
+
+### Summary
+
+缓存卡片添加今天/总计切换（后端新增每日缓存计数器），调用趋势图表等高分布，暂无数据文字居中
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c977c8b` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
