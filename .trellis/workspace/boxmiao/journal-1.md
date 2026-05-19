@@ -140,3 +140,36 @@ health_check API 改用 check_all() 探测所有端点并立即刷新前端状�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Fix cumulative stats decreasing after log cleanup
+
+**Date**: 2026-05-19
+**Task**: Fix cumulative stats decreasing after log cleanup
+**Branch**: `main`
+
+### Summary
+
+修复总调用次数/总字符数在 cleanup_old_logs 后减少的 bug。恢复 stats_anchor 累计计数：log_translation 递增 anchor，get_current_log_totals 从 anchor 读取，init 迁移补种已有数据。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3eab7b5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
