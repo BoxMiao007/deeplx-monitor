@@ -209,19 +209,37 @@
               <h2 class="section-title">翻译缓存 <span class="mode-badge">{{ (store.cacheStats?.max_memory_mb ?? 0) > 0 ? '内存模式' : '条目模式' }}</span></h2>
               <p class="section-subtitle">缓存命中率与容量使用情况</p>
             </div>
+            <div class="chart-tabs">
+              <button :class="['chart-tab', { active: cacheViewMode === 'today' }]" @click="cacheViewMode = 'today'">今天</button>
+              <button :class="['chart-tab', { active: cacheViewMode === 'total' }]" @click="cacheViewMode = 'total'">总计</button>
+            </div>
           </div>
-          <div class="cache-stats-grid" v-if="store.cacheStats?.enabled">
+          <div class="overview-metrics" v-if="store.cacheStats?.enabled && cacheViewMode === 'total'">
+            <div class="overview-metric-item">
+              <span class="overview-metric-label">命中率</span>
+              <span :class="['overview-metric-value', 'number', successRateColor(store.cacheStats.hit_rate * 100)]">{{ (store.cacheStats.hit_rate * 100).toFixed(1) }}<span class="overview-metric-unit">%</span></span>
+            </div>
+            <div class="overview-metric-item">
+              <span class="overview-metric-label">命中</span>
+              <span class="overview-metric-value number">{{ formatCompactNumber(store.cacheStats.hits) }}</span>
+            </div>
+            <div class="overview-metric-item">
+              <span class="overview-metric-label">未命中</span>
+              <span class="overview-metric-value number">{{ formatCompactNumber(store.cacheStats.misses) }}</span>
+            </div>
+          </div>
+          <div class="cache-stats-grid" v-if="store.cacheStats?.enabled && cacheViewMode === 'today'">
             <div class="cache-stat">
               <span class="cache-stat-label">命中率</span>
-              <span :class="['cache-stat-value', 'number', successRateColor(store.cacheStats.hit_rate * 100)]">{{ (store.cacheStats.hit_rate * 100).toFixed(1) }}%</span>
+              <span :class="['cache-stat-value', 'number', successRateColor(store.cacheStats.today_hit_rate * 100)]">{{ (store.cacheStats.today_hit_rate * 100).toFixed(1) }}%</span>
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">命中</span>
-              <span class="cache-stat-value number">{{ formatNumber(store.cacheStats.hits) }}</span>
+              <span class="cache-stat-value number">{{ formatNumber(store.cacheStats.today_hits) }}</span>
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">未命中</span>
-              <span class="cache-stat-value number">{{ formatNumber(store.cacheStats.misses) }}</span>
+              <span class="cache-stat-value number">{{ formatNumber(store.cacheStats.today_misses) }}</span>
             </div>
             <div class="cache-stat">
               <span class="cache-stat-label">缓存条目</span>
@@ -236,7 +254,7 @@
               <span class="cache-stat-value number">{{ formatTtl(store.cacheStats.ttl_secs) }}</span>
             </div>
           </div>
-          <div v-else class="text-muted" style="padding: 1rem;">缓存未启用</div>
+          <div v-if="!store.cacheStats?.enabled" class="text-muted" style="padding: 1rem;">缓存未启用</div>
         </article>
       </section>
 
@@ -731,6 +749,7 @@ async function ensureChartJs() {
 const store = useMonitorStore()
 const checking = ref(false)
 const logTab = ref<'requests' | 'cache-hits'>('requests')
+const cacheViewMode = ref<'today' | 'total'>('today')
 const showFullStat = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(50)
@@ -1366,6 +1385,13 @@ function formatTtl(secs: number): string {
   return `${secs}s`
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
 function barStyle(value: number, lang: string, metric: 'source' | 'target' | 'total') {
   const max = langBarMaxes.value[metric]
   const color = `${LANG_COLOR[lang.toUpperCase()] || '#3b82f6'}cc`
@@ -1734,13 +1760,6 @@ async function saveSettings() {
 const _numFmt = new Intl.NumberFormat()
 function formatNumber(n: number) {
   return _numFmt.format(n)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
 function formatTime(ts: string) {
@@ -2403,10 +2422,10 @@ const FLAG_URL: Record<string, string> = {
 .trend-card .charts-grid {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: 250px 200px 200px;
+  grid-template-rows: 1fr 1fr 1fr;
   gap: 8px;
-  height: 700px;
-  max-height: 700px;
+  height: 780px;
+  max-height: 780px;
   overflow: hidden;
 }
 
@@ -2506,6 +2525,10 @@ const FLAG_URL: Record<string, string> = {
   white-space: nowrap;
   font-size: 13px;
   color: var(--body-muted);
+}
+
+.text-center {
+  text-align: center;
 }
 
 .request-toolbar {

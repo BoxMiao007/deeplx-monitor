@@ -94,10 +94,13 @@ export interface CacheStats {
   enabled: boolean
   hits: number
   misses: number
+  today_hits: number
+  today_misses: number
   size: number
   max_entries: number
   ttl_secs: number
   hit_rate: number
+  today_hit_rate: number
   max_memory_mb: number
   estimated_memory_bytes: number
 }

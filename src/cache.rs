@@ -10,10 +10,13 @@ pub struct CacheStats {
     pub enabled: bool,
     pub hits: u64,
     pub misses: u64,
+    pub today_hits: u64,
+    pub today_misses: u64,
     pub size: u64,
     pub max_entries: u64,
     pub ttl_secs: u64,
     pub hit_rate: f64,
+    pub today_hit_rate: f64,
     pub max_memory_mb: u64,
     pub estimated_memory_bytes: u64,
 }
@@ -33,10 +36,17 @@ pub struct CacheHitEntry {
 
 const MAX_HIT_LOG: usize = 100;
 
+fn today_str() -> String {
+    crate::utils::chrono_now().split('T').next().unwrap_or("").to_string()
+}
+
 pub struct TranslationCache {
     cache: ArcSwap<moka::sync::Cache<String, CachedTranslation>>,
     hits: AtomicU64,
     misses: AtomicU64,
+    today_hits: AtomicU64,
+    today_misses: AtomicU64,
+    today_date: Mutex<String>,
     enabled: AtomicBool,
     max_entries: AtomicU64,
     ttl_secs: AtomicU64,
@@ -52,6 +62,9 @@ impl TranslationCache {
             cache: ArcSwap::from_pointee(cache),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
+            today_hits: AtomicU64::new(0),
+            today_misses: AtomicU64::new(0),
+            today_date: Mutex::new(today_str()),
             enabled: AtomicBool::new(enabled),
             max_entries: AtomicU64::new(max_entries),
             ttl_secs: AtomicU64::new(ttl_secs),
@@ -113,19 +126,34 @@ impl TranslationCache {
         self.cache.store(Arc::new(new_cache));
         self.hits.store(0, Ordering::Relaxed);
         self.misses.store(0, Ordering::Relaxed);
+        self.today_hits.store(0, Ordering::Relaxed);
+        self.today_misses.store(0, Ordering::Relaxed);
 
         tracing::info!("缓存已清除，计数器已重置");
+    }
+
+    fn maybe_reset_today(&self) {
+        let today = today_str();
+        if let Ok(mut date) = self.today_date.lock() {
+            if *date != today {
+                *date = today;
+                self.today_hits.store(0, Ordering::Relaxed);
+                self.today_misses.store(0, Ordering::Relaxed);
+            }
+        }
     }
 
     pub fn get(&self, text: &str, source_lang: &str, target_lang: &str) -> Option<CachedTranslation> {
         if !self.enabled.load(Ordering::Relaxed) {
             return None;
         }
+        self.maybe_reset_today();
         let key = Self::make_key(text, source_lang, target_lang);
         let cache_guard = self.cache.load();
         match cache_guard.get(&key) {
             Some(entry) => {
                 self.hits.fetch_add(1, Ordering::Relaxed);
+                self.today_hits.fetch_add(1, Ordering::Relaxed);
                 // 记录命中日志
                 let preview: String = text.chars().take(50).collect();
                 let log_entry = CacheHitEntry {
@@ -144,6 +172,7 @@ impl TranslationCache {
             }
             None => {
                 self.misses.fetch_add(1, Ordering::Relaxed);
+                self.today_misses.fetch_add(1, Ordering::Relaxed);
                 None
             }
         }
@@ -168,10 +197,16 @@ impl TranslationCache {
     }
 
     pub fn stats(&self) -> CacheStats {
+        self.maybe_reset_today();
         let hits = self.hits.load(Ordering::Relaxed);
         let misses = self.misses.load(Ordering::Relaxed);
         let total = hits + misses;
         let hit_rate = if total > 0 { hits as f64 / total as f64 } else { 0.0 };
+
+        let today_hits = self.today_hits.load(Ordering::Relaxed);
+        let today_misses = self.today_misses.load(Ordering::Relaxed);
+        let today_total = today_hits + today_misses;
+        let today_hit_rate = if today_total > 0 { today_hits as f64 / today_total as f64 } else { 0.0 };
 
         let cache_guard = self.cache.load();
         let size = cache_guard.entry_count();
@@ -181,10 +216,13 @@ impl TranslationCache {
             enabled: self.enabled.load(Ordering::Relaxed),
             hits,
             misses,
+            today_hits,
+            today_misses,
             size,
             max_entries: self.max_entries.load(Ordering::Relaxed),
             ttl_secs: self.ttl_secs.load(Ordering::Relaxed),
             hit_rate,
+            today_hit_rate,
             max_memory_mb: self.max_memory_mb.load(Ordering::Relaxed),
             estimated_memory_bytes,
         }
