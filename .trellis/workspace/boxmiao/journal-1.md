@@ -206,3 +206,36 @@ health_check API 改用 check_all() 探测所有端点并立即刷新前端状�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Fix outdated documentation
+
+**Date**: 2026-05-19
+**Task**: Fix outdated documentation
+**Branch**: `main`
+
+### Summary
+
+修正 CLAUDE.md 和 README.md 中 3 处过时/缺失的描述
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `00ac1bd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

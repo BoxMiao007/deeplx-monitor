@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-05-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~208 | Active |
+| `journal-1.md` | ~241 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-05-19 | Fix outdated documentation | `00ac1bd` | `main` |
 | 6 | 2026-05-19 | Fix three tested issues + add 64 unit tests | `b6854df` | `main` |
 | 5 | 2026-05-19 | Fix cumulative stats decreasing after log cleanup | `3eab7b5` | `main` |
 | 4 | 2026-05-19 | 健康检查全端点探测与 tooltip 修复 | `5fb1bc3` | `main` |
