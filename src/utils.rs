@@ -23,3 +23,38 @@ pub fn chrono_now() -> String {
         tm.tm_sec
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chrono_now_format() {
+        let now = chrono_now();
+        // 格式: YYYY-MM-DDTHH:MM:SS
+        assert_eq!(now.len(), 19);
+        assert_eq!(&now[4..5], "-");
+        assert_eq!(&now[7..8], "-");
+        assert_eq!(&now[10..11], "T");
+        assert_eq!(&now[13..14], ":");
+        assert_eq!(&now[16..17], ":");
+    }
+
+    #[test]
+    fn test_chrono_now_valid_date() {
+        let now = chrono_now();
+        let year: u32 = now[0..4].parse().unwrap();
+        let month: u32 = now[5..7].parse().unwrap();
+        let day: u32 = now[8..10].parse().unwrap();
+        let hour: u32 = now[11..13].parse().unwrap();
+        let minute: u32 = now[14..16].parse().unwrap();
+        let second: u32 = now[17..19].parse().unwrap();
+
+        assert!(year >= 2024);
+        assert!((1..=12).contains(&month));
+        assert!((1..=31).contains(&day));
+        assert!(hour < 24);
+        assert!(minute < 60);
+        assert!(second < 60);
+    }
+}

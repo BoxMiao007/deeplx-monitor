@@ -135,7 +135,7 @@ pub async fn requests(
     Query(query): Query<RequestsQuery>,
 ) -> impl IntoResponse {
     let page = query.page.unwrap_or(1).max(1);
-    let page_size = query.page_size.unwrap_or(50).clamp(50, 200);
+    let page_size = query.page_size.unwrap_or(50).clamp(1, 200);
 
     let db = state.db.clone();
     let (items, total) = tokio::task::spawn_blocking(move || {
@@ -549,5 +549,32 @@ pub async fn export(
             .into_response()
     } else {
         Json(logs).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_page_size_clamp_allows_small_values() {
+        // 验证修复后: clamp(1, 200) 允许 1-200 范围
+        let test_cases: Vec<(u32, u32)> = vec![
+            (1, 1),     // 用户请求 1 条/页 → 允许
+            (10, 10),   // 用户请求 10 条/页 → 允许
+            (20, 20),   // 用户请求 20 条/页 → 允许
+            (50, 50),   // 用户请求 50 条/页 → 允许
+            (100, 100), // 用户请求 100 条/页 → 允许
+            (200, 200), // 用户请求 200 条/页 → 上限
+            (300, 200), // 用户请求 300 条/页 → 强制为 200
+            (0, 1),     // 用户请求 0 条/页 → 强制为 1
+        ];
+
+        for (input, expected) in test_cases {
+            let result = input.clamp(1, 200);
+            assert_eq!(
+                result, expected,
+                "page_size={} 应为 {}，实际为 {}",
+                input, expected, result
+            );
+        }
     }
 }

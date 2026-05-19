@@ -60,6 +60,12 @@ impl Database {
             }
         }
 
+        // 迁移：修复 ALTER TABLE DEFAULT chars 产生的文本值（SQLite 将其视为字面量 "chars"）
+        conn.execute(
+            "UPDATE translation_logs SET source_chars = chars WHERE typeof(source_chars) != 'integer'",
+            [],
+        )?;
+
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_created_at ON translation_logs(created_at)",
             [],
@@ -97,7 +103,7 @@ impl Database {
         )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         if anchor_req == 0 {
             let (log_count, log_chars): (i64, i64) = conn.prepare_cached(
-                "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs"
+                "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs"
             )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
             if log_count > 0 {
                 conn.execute(
@@ -169,7 +175,7 @@ impl Database {
     pub fn get_period_stats(&self, days: u32) -> SqliteResult<(i64, i64)> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs
+            "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs
              WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')"
         )?;
         stmt.query_row(params![days], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
@@ -296,7 +302,7 @@ impl Database {
 
         // 同步累计计数器
         let (count, chars): (i64, i64) = conn.prepare_cached(
-            "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs"
+            "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs"
         )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         conn.execute(
             "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE id = 1",
@@ -311,7 +317,7 @@ impl Database {
         let mut stmt = conn.prepare_cached(
             "SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
                     COUNT(*) as count,
-                    COALESCE(SUM(chars), 0) as chars
+                    COALESCE(SUM(source_chars), 0) as chars
              FROM translation_logs
              WHERE created_at >= datetime('now', '-' || ?1 || ' hours', 'localtime')
              GROUP BY hour
@@ -446,7 +452,7 @@ impl Database {
         let mut stmt = conn.prepare_cached(
             "SELECT strftime('%Y-%m-%d', created_at) as day,
                     COUNT(*) as count,
-                    COALESCE(SUM(chars), 0) as chars
+                    COALESCE(SUM(source_chars), 0) as chars
              FROM translation_logs
              WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
              GROUP BY day
@@ -676,6 +682,393 @@ pub struct ErrorTrendPoint {
     pub total: i64,
     pub errors: i64,
     pub error_rate: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db() -> Database {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.db");
+        let db = Database::new(&path).unwrap();
+        std::mem::forget(dir);
+        db
+    }
+
+    #[test]
+    fn test_init_creates_tables() {
+        let db = temp_db();
+        let totals = db.get_current_log_totals().unwrap();
+        assert_eq!(totals, (0, 0));
+    }
+
+    #[test]
+    fn test_log_translation_increments_anchor() {
+        let db = temp_db();
+        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        let (req, chars) = db.get_current_log_totals().unwrap();
+        assert_eq!(req, 1);
+        assert_eq!(chars, 100);
+
+        db.log_translation("EN", "ZH", 50, 40, "success", None).unwrap();
+        let (req, chars) = db.get_current_log_totals().unwrap();
+        assert_eq!(req, 2);
+        assert_eq!(chars, 150);
+    }
+
+    #[test]
+    fn test_cleanup_does_not_decrease_totals() {
+        let db = temp_db();
+        for i in 0..20 {
+            db.log_translation("EN", "ZH", 10 + i, 8, "success", None).unwrap();
+        }
+        let (req_before, chars_before) = db.get_current_log_totals().unwrap();
+        assert_eq!(req_before, 20);
+
+        let deleted = db.cleanup_old_logs(5).unwrap();
+        assert_eq!(deleted, 15);
+
+        let (req_after, chars_after) = db.get_current_log_totals().unwrap();
+        assert_eq!(req_after, req_before, "总请求数不应因清理而减少");
+        assert_eq!(chars_after, chars_before, "总字符数不应因清理而减少");
+    }
+
+    #[test]
+    fn test_cleanup_no_op_when_under_limit() {
+        let db = temp_db();
+        for _ in 0..5 {
+            db.log_translation("EN", "ZH", 10, 8, "success", None).unwrap();
+        }
+        let deleted = db.cleanup_old_logs(10).unwrap();
+        assert_eq!(deleted, 0);
+    }
+
+    #[test]
+    fn test_get_period_stats() {
+        let db = temp_db();
+        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        db.log_translation("EN", "ZH", 200, 160, "error", Some("timeout")).unwrap();
+
+        let (count, chars) = db.get_period_stats(1).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(chars, 300);
+    }
+
+    #[test]
+    fn test_get_requests_pagination() {
+        let db = temp_db();
+        for i in 0..10 {
+            db.log_translation("EN", "ZH", i + 1, 0, "success", None).unwrap();
+        }
+
+        let (items, total) = db.get_requests(1, 5).unwrap();
+        assert_eq!(total, 10);
+        assert_eq!(items.len(), 5);
+        // 按 id DESC 排序，第一页应该是最新的
+        assert_eq!(items[0].id, 10);
+        assert_eq!(items[4].id, 6);
+
+        let (items, _) = db.get_requests(2, 5).unwrap();
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0].id, 5);
+    }
+
+    #[test]
+    fn test_error_logging() {
+        let db = temp_db();
+        db.log_translation("EN", "ZH", 50, 0, "error", Some("upstream timeout")).unwrap();
+
+        let (items, _) = db.get_requests(1, 50).unwrap();
+        assert_eq!(items[0].status, "error");
+        assert_eq!(items[0].error_msg.as_deref(), Some("upstream timeout"));
+    }
+
+    #[test]
+    fn test_cache_stats_persistence() {
+        let db = temp_db();
+        db.save_cache_stats(42, 13).unwrap();
+        let (hits, misses) = db.load_cache_stats();
+        assert_eq!(hits, 42);
+        assert_eq!(misses, 13);
+    }
+
+    #[test]
+    fn test_replace_with_demo_data_syncs_anchor() {
+        let db = temp_db();
+        // 先插入一些正常数据
+        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        let (req_before, _) = db.get_current_log_totals().unwrap();
+        assert_eq!(req_before, 1);
+
+        // demo 数据替换后，anchor 应该反映新的日志数量
+        db.replace_with_demo_data(12345).unwrap();
+        let (req_after, chars_after) = db.get_current_log_totals().unwrap();
+        assert!(req_after > 0, "demo 数据后 anchor 应该 > 0");
+
+        // 验证 anchor 与实际日志一致
+        let conn = db.conn.lock().unwrap();
+        let (log_count, log_chars): (i64, i64) = conn.prepare_cached(
+            "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs"
+        ).unwrap().query_row([], |row| Ok((row.get(0).unwrap(), row.get(1).unwrap()))).unwrap();
+        assert_eq!(req_after, log_count);
+        assert_eq!(chars_after, log_chars);
+    }
+
+    #[test]
+    fn test_migration_seeds_anchor_from_existing_logs() {
+        // 模拟旧数据库：有日志但 anchor 为 0
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("migrate.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE translation_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chars INTEGER NOT NULL,
+                    source_lang TEXT NOT NULL,
+                    target_lang TEXT NOT NULL,
+                    source_chars INTEGER NOT NULL DEFAULT 0,
+                    target_chars INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL,
+                    error_msg TEXT,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+                );
+                INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status) VALUES (100, 'EN', 'ZH', 100, 80, 'success');
+                INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status) VALUES (200, 'EN', 'ZH', 200, 160, 'success');
+                INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status) VALUES (50, 'JA', 'ZH', 50, 40, 'success');
+                CREATE TABLE stats_anchor (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    total_requests INTEGER NOT NULL DEFAULT 0,
+                    total_chars INTEGER NOT NULL DEFAULT 0,
+                    anchor_date TEXT NOT NULL
+                );
+                INSERT INTO stats_anchor (id, total_requests, total_chars, anchor_date) VALUES (1, 0, 0, '');"
+            ).unwrap();
+        }
+
+        // 打开数据库触发 init() 迁移
+        let db = Database::new(&path).unwrap();
+        let (req, chars) = db.get_current_log_totals().unwrap();
+        assert_eq!(req, 3, "迁移应从日志补种 anchor");
+        assert_eq!(chars, 350, "迁移应从日志补种字符总数");
+        std::mem::forget(dir);
+    }
+
+    #[test]
+    fn test_anchor_not_reseeded_when_nonzero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("no_reseed.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE translation_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chars INTEGER NOT NULL,
+                    source_lang TEXT NOT NULL,
+                    target_lang TEXT NOT NULL,
+                    source_chars INTEGER NOT NULL DEFAULT 0,
+                    target_chars INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL,
+                    error_msg TEXT,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+                );
+                INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status) VALUES (100, 'EN', 'ZH', 100, 80, 'success');
+                CREATE TABLE stats_anchor (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    total_requests INTEGER NOT NULL DEFAULT 0,
+                    total_chars INTEGER NOT NULL DEFAULT 0,
+                    anchor_date TEXT NOT NULL
+                );
+                INSERT INTO stats_anchor (id, total_requests, total_chars, anchor_date) VALUES (1, 999, 88888, '');"
+            ).unwrap();
+        }
+
+        let db = Database::new(&path).unwrap();
+        let (req, chars) = db.get_current_log_totals().unwrap();
+        assert_eq!(req, 999, "已有非零 anchor 不应被覆盖");
+        assert_eq!(chars, 88888);
+        std::mem::forget(dir);
+    }
+
+    #[test]
+    fn test_export_with_filters() {
+        let db = temp_db();
+        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        db.log_translation("JA", "ZH", 50, 40, "error", Some("fail")).unwrap();
+        db.log_translation("EN", "ZH", 200, 160, "success", None).unwrap();
+
+        let logs = db.get_export_logs(None, None, Some("JA"), None).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].source_lang, "JA");
+
+        let logs = db.get_export_logs(None, None, None, Some("error")).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].status, "error");
+    }
+
+    #[test]
+    fn test_heatmap_by_weekday() {
+        let db = temp_db();
+        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        let data = db.get_heatmap_by_weekday(30).unwrap();
+        assert!(!data.is_empty());
+        let weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+        assert!(weekday_names.contains(&data[0].x.as_str()));
+    }
+
+    // ===== 问题证明测试 =====
+
+    #[test]
+    fn proof_chars_column_equals_source_chars_for_new_rows() {
+        // 证明: INSERT 语句中 chars 和 source_chars 使用同一个参数 ?1
+        // init() 中的迁移确保旧行也被修复: UPDATE ... SET source_chars = chars WHERE typeof != 'integer'
+        let db = temp_db();
+        let test_cases: Vec<i64> = vec![1, 50, 100, 999, 12345];
+        for chars in &test_cases {
+            db.log_translation("EN", "ZH", *chars, 0, "success", None).unwrap();
+        }
+
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT chars, source_chars FROM translation_logs ORDER BY id").unwrap();
+        let rows: Vec<(i64, i64)> = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0).unwrap(), row.get::<_, i64>(1).unwrap()))
+        }).unwrap().filter_map(|r| r.ok()).collect();
+
+        for (i, (chars_col, source_chars_col)) in rows.iter().enumerate() {
+            assert_eq!(
+                chars_col, source_chars_col,
+                "第 {} 行: chars={} != source_chars={}, 新行两列应相等",
+                i + 1, chars_col, source_chars_col
+            );
+            assert_eq!(*chars_col, test_cases[i]);
+        }
+    }
+
+    #[test]
+    fn test_migration_fixes_old_source_chars_text_values() {
+        // 验证: init() 中的迁移能修复旧数据库中 source_chars 为文本 "chars" 的行
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old_schema.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch("
+                CREATE TABLE translation_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chars INTEGER NOT NULL,
+                    source_lang TEXT NOT NULL,
+                    target_lang TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    error_msg TEXT,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+                );
+                INSERT INTO translation_logs (chars, source_lang, target_lang, status) VALUES (100, 'EN', 'ZH', 'success');
+                INSERT INTO translation_logs (chars, source_lang, target_lang, status) VALUES (200, 'JA', 'ZH', 'success');
+                INSERT INTO translation_logs (chars, source_lang, target_lang, status) VALUES (50, 'ZH', 'EN', 'success');
+            ").unwrap();
+            // 模拟旧的 ALTER TABLE 行为：source_chars 得到文本 "chars"
+            conn.execute("ALTER TABLE translation_logs ADD COLUMN source_chars INTEGER NOT NULL DEFAULT chars", []).unwrap();
+            conn.execute("ALTER TABLE translation_logs ADD COLUMN target_chars INTEGER NOT NULL DEFAULT 0", []).unwrap();
+
+            // 验证旧行确实有文本值
+            let val: String = conn.prepare("SELECT typeof(source_chars) FROM translation_logs LIMIT 1")
+                .unwrap().query_row([], |row| row.get(0)).unwrap();
+            assert_eq!(val, "text", "旧行的 source_chars 应为文本类型");
+        }
+
+        // 打开数据库触发 init() 迁移
+        let db = Database::new(&path).unwrap();
+
+        // 验证迁移后 source_chars 被修复为正确的整数值
+        let conn = db.conn.lock().unwrap();
+        let rows: Vec<(i64, i64, String)> = conn.prepare(
+            "SELECT chars, source_chars, typeof(source_chars) FROM translation_logs ORDER BY id"
+        ).unwrap().query_map([], |row| {
+            Ok((row.get(0).unwrap(), row.get(1).unwrap(), row.get(2).unwrap()))
+        }).unwrap().filter_map(|r| r.ok()).collect();
+
+        for (chars, source_chars, type_name) in &rows {
+            assert_eq!(type_name, "integer", "迁移后 source_chars 应为 integer 类型");
+            assert_eq!(chars, source_chars, "迁移后 source_chars 应等于 chars");
+        }
+
+        // 验证 SUM(source_chars) 现在返回正确结果
+        let sum: i64 = conn.prepare("SELECT COALESCE(SUM(source_chars), 0) FROM translation_logs")
+            .unwrap().query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(sum, 350, "SUM(source_chars) 应为 100+200+50=350");
+        std::mem::forget(dir);
+    }
+
+    #[test]
+    fn test_concurrent_log_and_read() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let db = Arc::new(temp_db());
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let db = Arc::clone(&db);
+            handles.push(thread::spawn(move || {
+                db.log_translation("EN", "ZH", i + 1, 0, "success", None).unwrap();
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let (req, chars) = db.get_current_log_totals().unwrap();
+        assert_eq!(req, 10);
+        // chars = 1+2+3+...+10 = 55
+        assert_eq!(chars, 55);
+    }
+
+    #[test]
+    fn test_open_real_old_database() {
+        let src = std::path::Path::new("deeplx-monitor-旧.db");
+        if !src.exists() {
+            eprintln!("跳过: 旧数据库文件不存在");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("old_copy.db");
+        std::fs::copy(src, &tmp).unwrap();
+
+        let db = Database::new(&tmp).expect("Database::new() 应能打开旧数据库");
+
+        // 验证累计计数器
+        let (req, chars) = db.get_current_log_totals().unwrap();
+        assert!(req > 0, "旧数据库 anchor 应有请求数, got {}", req);
+        assert!(chars > 0, "旧数据库 anchor 应有字符数, got {}", chars);
+
+        // 验证 SUM(source_chars) 查询正常工作
+        let (period_req, period_chars) = db.get_period_stats(365).unwrap();
+        assert!(period_req > 0, "365天内应有请求");
+        assert!(period_chars > 0, "365天内应有字符");
+
+        // 验证分页查询
+        let (items, total) = db.get_requests(1, 10).unwrap();
+        assert!(total > 0);
+        assert!(!items.is_empty());
+        // 验证 source_chars 字段是正确的整数
+        for item in &items {
+            assert!(item.source_chars > 0, "source_chars 应为正整数, got {}", item.source_chars);
+        }
+
+        // 验证图表查询
+        let daily = db.get_daily_stats(365).unwrap();
+        assert!(!daily.is_empty(), "应有每日统计");
+        for d in &daily {
+            assert!(d.chars > 0, "每日字符数应 > 0");
+        }
+
+        // 验证热力图
+        let heatmap = db.get_heatmap_by_weekday(365).unwrap();
+        assert!(!heatmap.is_empty());
+
+        std::mem::forget(dir);
+    }
 }
 
 struct SimpleRng {

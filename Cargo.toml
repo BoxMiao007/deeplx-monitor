@@ -1,6 +1,6 @@
 [package]
 name = "deeplx_monitor"
-version = "1.1.5"
+version = "1.1.6"
 edition = "2021"
 
 [dependencies]
@@ -24,6 +24,9 @@ arc-swap = "1"
 sha2 = "0.10"
 csv = "1"
 notify = { version = "7", default-features = false, features = ["macos_kqueue"] }
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 lto = true

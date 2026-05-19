@@ -227,6 +227,89 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert_eq!(config.proxy.host, "127.0.0.1");
+        assert_eq!(config.proxy.port, 5555);
+        assert_eq!(config.upstream.max_failures, 3);
+        assert_eq!(config.upstream.probe_interval_secs, 60);
+        assert_eq!(config.monitor.max_log_entries, 10000);
+        assert_eq!(config.cache.ttl_secs, 3600);
+        assert_eq!(config.cache.max_entries, 10000);
+        assert!(!config.cache.enabled);
+        assert!(!config.demo.enabled);
+    }
+
+    #[test]
+    fn test_load_save_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_config.toml");
+
+        let mut config = Config::default();
+        config.proxy.port = 9999;
+        config.upstream.endpoints.push(EndpointConfig {
+            name: "test".to_string(),
+            url: "http://localhost:1188/translate".to_string(),
+            api_key: "secret".to_string(),
+        });
+        config.cache.enabled = true;
+        config.cache.ttl_secs = 7200;
+
+        config.save(&path).unwrap();
+        let loaded = Config::load(&path).unwrap();
+
+        assert_eq!(loaded.proxy.port, 9999);
+        assert_eq!(loaded.upstream.endpoints.len(), 1);
+        assert_eq!(loaded.upstream.endpoints[0].name, "test");
+        assert_eq!(loaded.upstream.endpoints[0].url, "http://localhost:1188/translate");
+        assert_eq!(loaded.upstream.endpoints[0].api_key, "secret");
+        assert!(loaded.cache.enabled);
+        assert_eq!(loaded.cache.ttl_secs, 7200);
+    }
+
+    #[test]
+    fn test_load_nonexistent_file() {
+        let result = Config::load("/nonexistent/path/config.toml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_partial_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("partial.toml");
+        fs::write(&path, r#"
+[proxy]
+port = 8080
+"#).unwrap();
+
+        let config = Config::load(&path).unwrap();
+        assert_eq!(config.proxy.port, 8080);
+        assert_eq!(config.proxy.host, "127.0.0.1"); // default
+        assert_eq!(config.upstream.max_failures, 3); // default
+    }
+
+    #[test]
+    fn test_load_invalid_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("invalid.toml");
+        fs::write(&path, "this is not valid toml [[[").unwrap();
+
+        let result = Config::load(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_config_error_display() {
+        let err = ConfigError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "not found"));
+        assert!(err.to_string().contains("IO error"));
+    }
+}
+
 /// 监听 config.toml 文件变更，自动热加载配置。
 /// 使用 1 秒去抖动避免编辑器多次写入触发重复加载。
 /// proxy.host / proxy.port 变更仅记录警告（需重启生效）。

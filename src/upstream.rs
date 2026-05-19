@@ -403,3 +403,151 @@ impl LoadBalancer {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_endpoints(n: usize) -> Vec<EndpointConfig> {
+        (0..n).map(|i| EndpointConfig {
+            name: format!("ep-{}", i),
+            url: format!("http://localhost:800{}/translate", i),
+            api_key: format!("key-{}", i),
+        }).collect()
+    }
+
+    #[tokio::test]
+    async fn test_select_round_robin() {
+        let lb = LoadBalancer::new(make_endpoints(3), 3);
+
+        let ep0 = lb.select().await.unwrap();
+        let ep1 = lb.select().await.unwrap();
+        let ep2 = lb.select().await.unwrap();
+        let ep3 = lb.select().await.unwrap();
+
+        assert_eq!(ep0.index(), 0);
+        assert_eq!(ep1.index(), 1);
+        assert_eq!(ep2.index(), 2);
+        assert_eq!(ep3.index(), 0); // wraps around
+    }
+
+    #[tokio::test]
+    async fn test_select_skips_unhealthy() {
+        let lb = LoadBalancer::new(make_endpoints(3), 2);
+
+        // 让 ep-0 失败到不健康
+        let ep = lb.select().await.unwrap();
+        assert_eq!(ep.index(), 0);
+        lb.report_failure(&ep, "error1").await;
+        lb.report_failure(&ep, "error2").await;
+
+        // 下一次选择应跳过 ep-0
+        let ep = lb.select().await.unwrap();
+        assert_ne!(ep.index(), 0, "不健康端点应被跳过");
+    }
+
+    #[tokio::test]
+    async fn test_all_unhealthy_falls_back() {
+        let lb = LoadBalancer::new(make_endpoints(2), 1);
+
+        // 让所有端点不健康
+        let ep0 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        let ep1 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 1 };
+        lb.report_failure(&ep0, "err").await;
+        lb.report_failure(&ep1, "err").await;
+
+        // 应该仍然返回一个端点（fallback）
+        let result = lb.select().await;
+        assert!(result.is_some(), "所有端点不健康时应 fallback");
+    }
+
+    #[tokio::test]
+    async fn test_report_success_resets_failures() {
+        let lb = LoadBalancer::new(make_endpoints(2), 3);
+
+        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        lb.report_failure(&ep, "err1").await;
+        lb.report_failure(&ep, "err2").await;
+        lb.report_success(&ep, 100).await;
+
+        // 端点应该恢复健康
+        let status = lb.status().await;
+        assert!(status[0].healthy);
+        assert_eq!(status[0].consecutive_failures, 0);
+    }
+
+    #[tokio::test]
+    async fn test_select_excluding() {
+        let lb = LoadBalancer::new(make_endpoints(3), 3);
+
+        let result = lb.select_excluding(0).await;
+        assert!(result.is_some());
+        assert_ne!(result.unwrap().index(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_select_excluding_single_endpoint() {
+        let lb = LoadBalancer::new(make_endpoints(1), 3);
+        let result = lb.select_excluding(0).await;
+        assert!(result.is_none(), "单端点时排除后应返回 None");
+    }
+
+    #[tokio::test]
+    async fn test_empty_endpoints() {
+        let lb = LoadBalancer::new(vec![], 3);
+        let result = lb.select().await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_reload_resets_state() {
+        let lb = LoadBalancer::new(make_endpoints(2), 3);
+
+        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        lb.report_failure(&ep, "err").await;
+        lb.report_failure(&ep, "err").await;
+        lb.report_failure(&ep, "err").await;
+
+        // reload 后应该全部健康
+        lb.reload(make_endpoints(2), 3).await;
+        let status = lb.status().await;
+        assert!(status[0].healthy);
+        assert!(status[1].healthy);
+    }
+
+    #[tokio::test]
+    async fn test_status_avg_latency() {
+        let lb = LoadBalancer::new(make_endpoints(1), 3);
+
+        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        lb.report_success(&ep, 100).await;
+        lb.report_success(&ep, 200).await;
+        lb.report_success(&ep, 300).await;
+
+        let status = lb.status().await;
+        assert_eq!(status[0].avg_latency_ms, 200); // (100+200+300)/3
+        assert_eq!(status[0].total_requests, 3);
+        assert_eq!(status[0].total_successes, 3);
+    }
+
+    #[tokio::test]
+    async fn test_last_known_good_fallback() {
+        let lb = LoadBalancer::new(make_endpoints(3), 1);
+
+        // 先让 ep-1 成功（设为 last-known-good）
+        let ep1 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 1 };
+        lb.report_success(&ep1, 50).await;
+
+        // 让所有端点不健康
+        let ep0 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        let ep2 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 2 };
+        lb.report_failure(&ep0, "err").await;
+        // ep1 刚成功过，是健康的，需要让它也失败
+        lb.report_failure(&ep1, "err").await;
+        lb.report_failure(&ep2, "err").await;
+
+        // 应该 fallback 到 last-known-good (index 1)
+        let selected = lb.select().await.unwrap();
+        assert_eq!(selected.index(), 1, "应 fallback 到 last-known-good");
+    }
+}

@@ -214,3 +214,148 @@ impl TranslationCache {
         format!("{:x}", hasher.finalize())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_cache(enabled: bool) -> Arc<TranslationCache> {
+        TranslationCache::new(enabled, 3600, 1000, 0)
+    }
+
+    #[test]
+    fn test_insert_and_get() {
+        let cache = make_cache(true);
+        let json = serde_json::json!({"code": 200, "data": "你好"});
+        cache.insert("hello", "EN", "ZH", json.clone());
+
+        let result = cache.get("hello", "EN", "ZH");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().response_json, json);
+    }
+
+    #[test]
+    fn test_disabled_cache_returns_none() {
+        let cache = make_cache(false);
+        let json = serde_json::json!({"code": 200, "data": "你好"});
+        cache.insert("hello", "EN", "ZH", json);
+
+        let result = cache.get("hello", "EN", "ZH");
+        assert!(result.is_none(), "禁用缓存时应返回 None");
+    }
+
+    #[test]
+    fn test_different_lang_pair_is_different_key() {
+        let cache = make_cache(true);
+        let json_en_zh = serde_json::json!({"data": "你好"});
+        let json_en_ja = serde_json::json!({"data": "こんにちは"});
+        cache.insert("hello", "EN", "ZH", json_en_zh.clone());
+        cache.insert("hello", "EN", "JA", json_en_ja.clone());
+
+        assert_eq!(cache.get("hello", "EN", "ZH").unwrap().response_json, json_en_zh);
+        assert_eq!(cache.get("hello", "EN", "JA").unwrap().response_json, json_en_ja);
+    }
+
+    #[test]
+    fn test_hit_miss_counting() {
+        let cache = make_cache(true);
+        let json = serde_json::json!({"data": "test"});
+        cache.insert("hello", "EN", "ZH", json);
+
+        cache.get("hello", "EN", "ZH"); // hit
+        cache.get("hello", "EN", "ZH"); // hit
+        cache.get("world", "EN", "ZH"); // miss
+
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 2);
+        assert_eq!(stats.misses, 1);
+        assert!((stats.hit_rate - 2.0 / 3.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_clear_resets_everything() {
+        let cache = make_cache(true);
+        let json = serde_json::json!({"data": "test"});
+        cache.insert("hello", "EN", "ZH", json);
+        cache.get("hello", "EN", "ZH");
+
+        cache.clear();
+
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+        assert_eq!(stats.size, 0);
+        assert!(cache.get("hello", "EN", "ZH").is_none());
+    }
+
+    #[test]
+    fn test_reload_rebuilds_cache() {
+        let cache = make_cache(true);
+        let json = serde_json::json!({"data": "test"});
+        cache.insert("hello", "EN", "ZH", json);
+
+        cache.reload(true, 7200, 2000, 0);
+
+        // 旧条目应该丢失
+        assert!(cache.get("hello", "EN", "ZH").is_none());
+        assert_eq!(cache.stats().ttl_secs, 7200);
+        assert_eq!(cache.stats().max_entries, 2000);
+    }
+
+    #[test]
+    fn test_restore_stats() {
+        let cache = make_cache(true);
+        cache.restore_stats(100, 50);
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 100);
+        assert_eq!(stats.misses, 50);
+    }
+
+    #[test]
+    fn test_get_raw_stats() {
+        let cache = make_cache(true);
+        let json = serde_json::json!({"data": "test"});
+        cache.insert("hello", "EN", "ZH", json);
+        cache.get("hello", "EN", "ZH");
+        cache.get("world", "EN", "ZH");
+
+        let (hits, misses) = cache.get_raw_stats();
+        assert_eq!(hits, 1);
+        assert_eq!(misses, 1);
+    }
+
+    #[test]
+    fn test_hit_log_records_entries() {
+        let cache = make_cache(true);
+        let json = serde_json::json!({"data": "test"});
+        cache.insert("hello world", "EN", "ZH", json);
+        cache.get("hello world", "EN", "ZH");
+
+        let log = cache.hit_log();
+        assert_eq!(log.len(), 1);
+        assert_eq!(log[0].source_lang, "EN");
+        assert_eq!(log[0].target_lang, "ZH");
+        assert_eq!(log[0].text_preview, "hello world");
+    }
+
+    #[test]
+    fn test_hit_log_max_capacity() {
+        let cache = make_cache(true);
+        for i in 0..150 {
+            let text = format!("text_{}", i);
+            let json = serde_json::json!({"data": text});
+            cache.insert(&text, "EN", "ZH", json);
+            cache.get(&text, "EN", "ZH");
+        }
+
+        let log = cache.hit_log();
+        assert_eq!(log.len(), MAX_HIT_LOG, "命中日志应限制在 {} 条", MAX_HIT_LOG);
+    }
+
+    #[test]
+    fn test_memory_based_cache() {
+        let cache = TranslationCache::new(true, 3600, 1000, 1); // 1MB limit
+        let stats = cache.stats();
+        assert_eq!(stats.max_memory_mb, 1);
+    }
+}

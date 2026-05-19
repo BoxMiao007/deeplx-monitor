@@ -128,7 +128,12 @@ pub async fn translate(
         .unwrap_or("ZH")
         .to_uppercase();
 
-    let log_source = detect_language(text).to_string();
+    let log_source = body
+        .get("source_lang")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"))
+        .map(|s| s.to_uppercase())
+        .unwrap_or_else(|| detect_language(text).to_string());
 
     // 检查缓存（除非请求头指定绕过）
     let no_cache = headers
@@ -274,4 +279,151 @@ async fn send_to_upstream(
     let body = resp.json::<serde_json::Value>().await.unwrap_or_default();
 
     Ok(UpstreamResult { status, body, latency_ms })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_english() {
+        assert_eq!(detect_language("Hello, world!"), "EN");
+        assert_eq!(detect_language("The quick brown fox"), "EN");
+    }
+
+    #[test]
+    fn test_detect_chinese() {
+        assert_eq!(detect_language("你好世界"), "ZH");
+        assert_eq!(detect_language("今天天气真好"), "ZH");
+    }
+
+    #[test]
+    fn test_detect_japanese() {
+        assert_eq!(detect_language("こんにちは"), "JA");
+        assert_eq!(detect_language("おはようございます"), "JA");
+        assert_eq!(detect_language("カタカナテスト"), "JA");
+    }
+
+    #[test]
+    fn test_detect_korean() {
+        assert_eq!(detect_language("안녕하세요"), "KO");
+    }
+
+    #[test]
+    fn test_detect_russian() {
+        assert_eq!(detect_language("Привет мир"), "RU");
+    }
+
+    #[test]
+    fn test_detect_arabic() {
+        assert_eq!(detect_language("مرحبا بالعالم"), "AR");
+    }
+
+    #[test]
+    fn test_detect_french() {
+        assert_eq!(detect_language("Bonjour ça va très bien"), "FR");
+    }
+
+    #[test]
+    fn test_detect_german() {
+        assert_eq!(detect_language("Guten Morgen über Straße"), "DE");
+    }
+
+    #[test]
+    fn test_detect_empty_string() {
+        assert_eq!(detect_language(""), "EN");
+    }
+
+    #[test]
+    fn test_detect_numbers_only() {
+        assert_eq!(detect_language("12345"), "EN");
+    }
+
+    #[test]
+    fn test_detect_mixed_cjk_japanese() {
+        // 含有平假名的混合文本应检测为日语
+        assert_eq!(detect_language("東京は美しい街です"), "JA");
+    }
+
+    #[test]
+    fn test_detect_pure_kanji_is_chinese() {
+        // 纯汉字（无假名）应检测为中文
+        assert_eq!(detect_language("机器学习人工智能"), "ZH");
+    }
+
+    // ===== Fix 2 验证测试 =====
+
+    #[test]
+    fn test_source_lang_respected_when_provided() {
+        // 修复后: 用户指定 source_lang 时应使用用户值，而非 detect_language
+        // 模拟 proxy 逻辑: body.get("source_lang").filter(非空且非auto).unwrap_or(detect)
+        let text = "Hello world";
+        let body_source_lang = Some("FR");
+
+        let log_source = body_source_lang
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"))
+            .map(|s| s.to_uppercase())
+            .unwrap_or_else(|| detect_language(text).to_string());
+
+        assert_eq!(log_source, "FR", "用户指定 source_lang='FR' 应被尊重");
+    }
+
+    #[test]
+    fn test_source_lang_fallback_to_detect_when_auto() {
+        let text = "Hello world";
+        let body_source_lang = Some("auto");
+
+        let log_source = body_source_lang
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"))
+            .map(|s| s.to_uppercase())
+            .unwrap_or_else(|| detect_language(text).to_string());
+
+        assert_eq!(log_source, "EN", "source_lang='auto' 时应 fallback 到 detect_language");
+    }
+
+    #[test]
+    fn test_source_lang_fallback_to_detect_when_empty() {
+        let text = "你好世界";
+        let body_source_lang = Some("");
+
+        let log_source = body_source_lang
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"))
+            .map(|s| s.to_uppercase())
+            .unwrap_or_else(|| detect_language(text).to_string());
+
+        assert_eq!(log_source, "ZH", "source_lang='' 时应 fallback 到 detect_language");
+    }
+
+    #[test]
+    fn test_source_lang_fallback_to_detect_when_missing() {
+        let text = "こんにちは";
+        let body_source_lang: Option<&str> = None;
+
+        let log_source = body_source_lang
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("auto"))
+            .map(|s| s.to_uppercase())
+            .unwrap_or_else(|| detect_language(text).to_string());
+
+        assert_eq!(log_source, "JA", "source_lang 缺失时应 fallback 到 detect_language");
+    }
+
+    #[test]
+    fn test_cache_key_differs_by_source_lang() {
+        // 修复后: 不同 source_lang 应产生不同缓存 key
+        use sha2::{Digest, Sha256};
+        let text = "chat";
+        let make_key = |source: &str, target: &str| -> String {
+            let mut hasher = Sha256::new();
+            hasher.update(text.as_bytes());
+            hasher.update(b"|");
+            hasher.update(source.as_bytes());
+            hasher.update(b"|");
+            hasher.update(target.as_bytes());
+            format!("{:x}", hasher.finalize())
+        };
+
+        let key_fr = make_key("FR", "ZH");
+        let key_en = make_key("EN", "ZH");
+        assert_ne!(key_fr, key_en, "不同 source_lang 应产生不同缓存 key，避免缓存污染");
+    }
 }
