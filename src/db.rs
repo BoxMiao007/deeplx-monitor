@@ -91,6 +91,22 @@ impl Database {
             [],
         )?;
 
+        // 迁移：若 stats_anchor 计数为 0 但已有日志，从现有日志补种累计值
+        let (anchor_req, _): (i64, i64) = conn.prepare_cached(
+            "SELECT total_requests, total_chars FROM stats_anchor WHERE id = 1"
+        )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        if anchor_req == 0 {
+            let (log_count, log_chars): (i64, i64) = conn.prepare_cached(
+                "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs"
+            )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            if log_count > 0 {
+                conn.execute(
+                    "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE id = 1",
+                    params![log_count, log_chars],
+                )?;
+            }
+        }
+
         Ok(())
     }
 
@@ -108,6 +124,10 @@ impl Database {
             "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg)
              VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6)",
             params![source_chars, source_lang, target_lang, target_chars, status, error_msg],
+        )?;
+        conn.execute(
+            "UPDATE stats_anchor SET total_requests = total_requests + 1, total_chars = total_chars + ?1 WHERE id = 1",
+            params![source_chars],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -141,7 +161,7 @@ impl Database {
     pub fn get_current_log_totals(&self) -> SqliteResult<(i64, i64)> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs",
+            "SELECT total_requests, total_chars FROM stats_anchor WHERE id = 1",
         )?;
         stmt.query_row([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
     }
@@ -273,6 +293,15 @@ impl Database {
                 params![source_chars, source_lang, target_lang, target_chars, status, error_msg, created_at],
             )?;
         }
+
+        // 同步累计计数器
+        let (count, chars): (i64, i64) = conn.prepare_cached(
+            "SELECT COUNT(*), COALESCE(SUM(chars), 0) FROM translation_logs"
+        )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        conn.execute(
+            "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE id = 1",
+            params![count, chars],
+        )?;
 
         Ok(())
     }

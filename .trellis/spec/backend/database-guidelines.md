@@ -17,7 +17,7 @@
 
 ### `translation_logs` — 请求日志
 
-Primary data table. Stats are computed in real-time from this table.
+Primary data table. Used for time-series queries (charts, heatmaps, period stats). Cumulative totals are tracked in `stats_anchor`.
 
 ```sql
 CREATE TABLE translation_logs (
@@ -35,30 +35,40 @@ CREATE TABLE translation_logs (
 
 Indexes: `idx_created_at`, `idx_source_lang_created`, `idx_target_lang_created`
 
-### `stats_anchor` — 缓存统计持久化
+### `stats_anchor` — 累计统计与缓存计数持久化
 
-Only used for persisting cache hit/miss counters across restarts. The `total_requests`/`total_chars`/`anchor_date` columns are **dead** (kept to avoid SQLite rebuild migration).
+Persists cumulative request/char counters (survive log cleanup) and cache hit/miss counters (survive restarts).
 
 ```sql
--- Only these columns are actively read/written:
-cache_hits INTEGER NOT NULL DEFAULT 0
-cache_misses INTEGER NOT NULL DEFAULT 0
+CREATE TABLE stats_anchor (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    total_requests INTEGER NOT NULL DEFAULT 0,  -- 累计请求总数（只增不减）
+    total_chars INTEGER NOT NULL DEFAULT 0,     -- 累计字符总数（只增不减）
+    anchor_date TEXT NOT NULL,                  -- legacy, unused
+    cache_hits INTEGER NOT NULL DEFAULT 0,
+    cache_misses INTEGER NOT NULL DEFAULT 0
+)
 ```
+
+- `total_requests` / `total_chars`: incremented on every `log_translation()` call. Read by `get_current_log_totals()`. Not affected by log cleanup.
+- `cache_hits` / `cache_misses`: saved periodically by background task, loaded on restart.
+- `anchor_date`: legacy column, not actively used (kept to avoid SQLite rebuild).
 
 ---
 
 ## Design Decisions
 
-### Real-time Stats (not cumulative counters)
+### Cumulative Counters in stats_anchor
 
-**Context**: Previously, `stats_anchor` accumulated total_requests/total_chars, and cleanup would roll up deleted rows before deletion. This created coupling between retention and stats.
+**Context**: Previously, stats were computed in real-time via `SELECT COUNT(*), SUM(chars) FROM translation_logs`. However, `cleanup_old_logs()` deletes old rows, causing the real-time totals to decrease — a confusing UX where "total requests" goes down.
 
-**Decision**: Stats are computed in real-time via `SELECT COUNT(*), SUM(chars) FROM translation_logs`. The table is bounded by `max_log_entries` (default 10000), keeping queries fast.
+**Decision**: `stats_anchor.total_requests` and `stats_anchor.total_chars` are incremented on every `log_translation()` call. `get_current_log_totals()` reads from `stats_anchor` directly. Cleanup no longer affects displayed totals.
 
 **Why**:
-- Simpler code (no transaction needed for log inserts)
-- No data drift between anchor and actual logs
-- Retention strategy is independent of stats calculation
+- Totals are monotonically increasing (never decrease after cleanup)
+- Single extra UPDATE per insert is negligible overhead
+- No coupling between retention and stats display
+- Migration in `init()` seeds from existing logs for backward compatibility
 
 ### Count-based Retention (not time-based)
 
@@ -75,15 +85,21 @@ cache_misses INTEGER NOT NULL DEFAULT 0
 
 ## Query Patterns
 
-### Log insertion — single INSERT, no transaction
+### Log insertion — INSERT + UPDATE anchor (same lock scope)
 
 ```rust
 pub fn log_translation(...) -> SqliteResult<i64> {
     let conn = self.conn.lock().unwrap();
     conn.execute("INSERT INTO translation_logs ...", params![...])?;
+    conn.execute(
+        "UPDATE stats_anchor SET total_requests = total_requests + 1, total_chars = total_chars + ?1 WHERE id = 1",
+        params![source_chars],
+    )?;
     Ok(conn.last_insert_rowid())
 }
 ```
+
+Both statements run under the same `Mutex` lock, ensuring atomicity at the application level.
 
 ### Cleanup — delete oldest by count
 
@@ -118,23 +134,35 @@ if !cols.iter().any(|c| c == "new_column") {
 }
 ```
 
-> **Warning**: SQLite cannot DROP COLUMN or rename columns without rebuilding the table. Dead columns are left in place (e.g., `stats_anchor.total_requests`).
+> **Warning**: SQLite cannot DROP COLUMN or rename columns without rebuilding the table. Dead columns are left in place (e.g., `stats_anchor.anchor_date`).
 
 ---
 
 ## Common Mistakes
 
-### Don't: Accumulate stats in a separate table
+### Don't: Compute totals from translation_logs directly
 
 ```rust
-// Wrong: coupling retention with stats
-conn.execute("UPDATE stats_anchor SET total_requests = total_requests + 1", [])?;
-// Then on cleanup: roll up before delete
+// Wrong: totals decrease when cleanup_old_logs() runs
+conn.prepare_cached("SELECT COUNT(*), SUM(chars) FROM translation_logs")?
 ```
 
 ```rust
-// Correct: query logs directly
-conn.prepare_cached("SELECT COUNT(*), SUM(chars) FROM translation_logs")?
+// Correct: read cumulative counters from stats_anchor
+conn.prepare_cached("SELECT total_requests, total_chars FROM stats_anchor WHERE id = 1")?
+```
+
+### Don't: Forget to sync anchor after bulk data changes
+
+```rust
+// Wrong: replace_with_demo_data() inserts rows but doesn't update anchor
+conn.execute("DELETE FROM translation_logs", [])?;
+// ... insert demo rows ...
+// anchor still has old totals!
+
+// Correct: sync anchor from actual log counts after bulk operations
+let (count, chars) = /* SELECT COUNT(*), SUM(chars) FROM translation_logs */;
+conn.execute("UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE id = 1", ...)?;
 ```
 
 ### Don't: Use transactions for single statements
