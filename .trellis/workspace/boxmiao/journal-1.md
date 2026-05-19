@@ -173,3 +173,36 @@ health_check API 改用 check_all() 探测所有端点并立即刷新前端状�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Fix three tested issues + add 64 unit tests
+
+**Date**: 2026-05-19
+**Task**: Fix three tested issues + add 64 unit tests
+**Branch**: `main`
+
+### Summary
+
+修复 page_size clamp、source_lang 被忽略、source_chars 列迁移三个问题，添加 64 个单元测试覆盖全部核心模块
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b6854df` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
