@@ -161,70 +161,39 @@ pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     let target_lang = config.health_check.target_lang.clone();
     drop(config);
 
-    let body = serde_json::json!({
-        "text": "hi",
-        "source_lang": source_lang,
-        "target_lang": target_lang
-    });
+    let results = state
+        .load_balancer
+        .check_all(&state.http_client, &source_lang, &target_lang)
+        .await;
 
-    let lb = &state.load_balancer;
-    let endpoint = match lb.select().await {
-        Some(ep) => ep,
-        None => {
-            let h = HealthStatus {
-                status: "error".to_string(),
-                latency_ms: None,
-                checked_at: Some(chrono_now()),
-                error: Some("No upstream endpoints configured".to_string()),
-            };
-            *state.health.write().await = h.clone();
-            return Json(h).into_response();
+    // 根据所有端点的探测结果推导整体健康状态
+    let health = if results.is_empty() {
+        HealthStatus {
+            status: "error".to_string(),
+            latency_ms: None,
+            checked_at: Some(chrono_now()),
+            error: Some("No upstream endpoints configured".to_string()),
         }
-    };
-
-    let mut req_builder = state.http_client
-        .post(endpoint.url())
-        .json(&body);
-
-    if !endpoint.api_key().is_empty() {
-        req_builder = req_builder.header("Authorization", format!("Bearer {}", endpoint.api_key()));
-    }
-
-    let start = std::time::Instant::now();
-    let result = req_builder.send().await;
-    let latency_ms = start.elapsed().as_millis() as u64;
-
-    let health = match result {
-        Ok(resp) => {
-            let status_code = resp.status().as_u16();
-            if status_code >= 200 && status_code < 300 {
-                lb.report_success(&endpoint, latency_ms).await;
-                HealthStatus {
-                    status: "ok".to_string(),
-                    latency_ms: Some(latency_ms),
-                    checked_at: Some(chrono_now()),
-                    error: None,
-                }
-            } else {
-                let err = format!("HTTP {}", status_code);
-                lb.report_failure(&endpoint, &err).await;
-                HealthStatus {
-                    status: "error".to_string(),
-                    latency_ms: Some(latency_ms),
-                    checked_at: Some(chrono_now()),
-                    error: Some(err),
-                }
-            }
+    } else if let Some(min_latency) = results.iter().filter(|r| r.ok).map(|r| r.latency_ms).min()
+    {
+        // 至少有一个端点成功
+        HealthStatus {
+            status: "ok".to_string(),
+            latency_ms: Some(min_latency),
+            checked_at: Some(chrono_now()),
+            error: None,
         }
-        Err(e) => {
-            let err = e.to_string();
-            lb.report_failure(&endpoint, &err).await;
-            HealthStatus {
-                status: "error".to_string(),
-                latency_ms: Some(latency_ms),
-                checked_at: Some(chrono_now()),
-                error: Some(err),
-            }
+    } else {
+        // 全部失败，取第一个错误
+        let first_err = results
+            .first()
+            .and_then(|r| r.error.clone())
+            .unwrap_or_else(|| "Unknown error".to_string());
+        HealthStatus {
+            status: "error".to_string(),
+            latency_ms: results.first().map(|r| r.latency_ms),
+            checked_at: Some(chrono_now()),
+            error: Some(first_err),
         }
     };
 

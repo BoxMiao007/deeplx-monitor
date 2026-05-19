@@ -280,6 +280,8 @@ export const useMonitorStore = defineStore('monitor', () => {
       if (stats.value) {
         stats.value.health = health
       }
+      // 刷新端点状态卡片，使 UI 立即反映探测结果
+      await fetchUpstreamStatus()
     } catch (e) {
       error.value = (e as Error).message
     }

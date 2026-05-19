@@ -17,6 +17,15 @@ pub struct EndpointStatus {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct EndpointHealthCheckResult {
+    pub name: String,
+    pub ok: bool,
+    pub latency_ms: u64,
+    pub error: Option<String>,
+}
+
 struct EndpointState {
     config: EndpointConfig,
     healthy: RwLock<bool>,
@@ -262,6 +271,83 @@ impl LoadBalancer {
                 }
             }
         }
+    }
+
+    /// 手动探活所有端点，并让状态立即反映本次探测结果。
+    pub async fn check_all(
+        &self,
+        http_client: &reqwest::Client,
+        source_lang: &str,
+        target_lang: &str,
+    ) -> Vec<EndpointHealthCheckResult> {
+        let endpoints = self.endpoints.read().await.clone();
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for (idx, ep) in endpoints.iter().enumerate() {
+            let body = serde_json::json!({
+                "text": "hi",
+                "source_lang": source_lang,
+                "target_lang": target_lang
+            });
+
+            let mut req = http_client.post(&ep.config.url).json(&body);
+            if !ep.config.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", ep.config.api_key));
+            }
+
+            let start = Instant::now();
+            let result = req.send().await;
+            let latency_ms = start.elapsed().as_millis() as u64;
+
+            match result {
+                Ok(resp) if resp.status().is_success() => {
+                    ep.total_requests.fetch_add(1, Ordering::Relaxed);
+                    ep.total_successes.fetch_add(1, Ordering::Relaxed);
+                    ep.latency_sum_ms.fetch_add(latency_ms, Ordering::Relaxed);
+                    *ep.consecutive_failures.write().await = 0;
+                    *ep.healthy.write().await = true;
+                    *ep.last_error.write().await = None;
+                    *self.last_known_good.write().await = Some(idx);
+
+                    results.push(EndpointHealthCheckResult {
+                        name: ep.config.name.clone(),
+                        ok: true,
+                        latency_ms,
+                        error: None,
+                    });
+                }
+                Ok(resp) => {
+                    let error = format!("HTTP {}", resp.status().as_u16());
+                    ep.total_requests.fetch_add(1, Ordering::Relaxed);
+                    *ep.consecutive_failures.write().await += 1;
+                    *ep.healthy.write().await = false;
+                    *ep.last_error.write().await = Some(error.clone());
+
+                    results.push(EndpointHealthCheckResult {
+                        name: ep.config.name.clone(),
+                        ok: false,
+                        latency_ms,
+                        error: Some(error),
+                    });
+                }
+                Err(e) => {
+                    let error = e.to_string();
+                    ep.total_requests.fetch_add(1, Ordering::Relaxed);
+                    *ep.consecutive_failures.write().await += 1;
+                    *ep.healthy.write().await = false;
+                    *ep.last_error.write().await = Some(error.clone());
+
+                    results.push(EndpointHealthCheckResult {
+                        name: ep.config.name.clone(),
+                        ok: false,
+                        latency_ms,
+                        error: Some(error),
+                    });
+                }
+            }
+        }
+
+        results
     }
 
     /// 演示模式：填充假统计数据

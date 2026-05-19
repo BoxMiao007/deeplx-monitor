@@ -116,7 +116,7 @@
       </section>
 
       <section class="infra-grid">
-        <article v-if="store.upstreamStatus.length > 0" class="card section-card clip-card">
+        <article v-if="store.upstreamStatus.length > 0" class="card section-card">
           <div class="section-topbar">
             <div>
               <h2 class="section-title">上游端点</h2>
@@ -178,7 +178,7 @@
             <div class="upstream-grid">
               <div class="upstream-grid-item">
                 <span class="upstream-grid-label">状态</span>
-                <span :class="['badge', 'badge-with-tooltip', activeUpstreamData.healthy ? 'badge-success' : 'badge-error']" :data-tooltip="activeUpstreamData.last_error || null">{{ activeUpstreamData.healthy ? '健康' : '不健康' }}</span>
+                <span :class="['badge', 'badge-with-tooltip', activeUpstreamData.healthy ? 'badge-success' : 'badge-error']" :data-tooltip="activeUpstreamData.last_error || '正常'">{{ activeUpstreamData.healthy ? '健康' : '不健康' }}</span>
               </div>
               <div class="upstream-grid-item">
                 <span class="upstream-grid-label">平均延迟</span>
@@ -2949,6 +2949,30 @@ const FLAG_URL: Record<string, string> = {
   width: auto;
   height: 30px;
   line-height: 30px;
+}
+
+.badge-with-tooltip {
+  position: relative;
+  cursor: default;
+}
+
+.badge-with-tooltip[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.88);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 100;
+  pointer-events: none;
 }
 
 .upstream-url-row {
