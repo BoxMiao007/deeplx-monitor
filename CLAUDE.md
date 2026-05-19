@@ -24,6 +24,7 @@ npm run build      # builds to ../dist/
 # Backend (run from project root)
 cargo build        # compile
 cargo run          # start server on 127.0.0.1:5555
+cargo test         # run 64 unit tests
 cargo build --release
 ```
 
@@ -46,7 +47,7 @@ Client ──POST /translate──► proxy.rs ──► LoadBalancer ──► 
 - **`main.rs`**: Axum router setup, SPA/asset handlers, background tasks (log cleanup, endpoint probing, config file watcher). Listens on address from `config.toml` `[proxy]` section.
 - **`proxy.rs`**: `/translate` handler — checks cache, selects upstream via LoadBalancer, forwards request, measures latency, logs result to DB.
 - **`api.rs`**: All `/api/*` endpoints — stats, charts, request logs, health check, full config CRUD, upstream status, cache stats, analytics (heatmap, error trend), data export.
-- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Tables: `translation_logs` (per-request rows, stats computed in real-time) and `stats_anchor` (cache hit/miss counters only).
+- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Tables: `translation_logs` (per-request rows) and `stats_anchor` (cumulative request/char counters + cache hit/miss counters). Totals read from `stats_anchor` (not affected by log cleanup).
 - **`state.rs`**: `AppState` holds `Arc<RwLock<Config>>`, `Arc<Database>`, `Arc<RwLock<HealthStatus>>`, `Arc<LoadBalancer>`, `Arc<TranslationCache>`, `reqwest::Client`.
 - **`config.rs`**: TOML config with sections: `[upstream]`, `[proxy]`, `[monitor]`, `[health_check]`, `[cache]`, `[demo]`. Includes `watch_config_file()` for hot-reload via `notify`.
 - **`upstream.rs`**: Multi-endpoint load balancer (round-robin + failover). Supports runtime `reload()` when config changes.

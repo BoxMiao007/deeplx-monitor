@@ -144,6 +144,7 @@ seed = 20260511
 | GET | `/api/cache/hits` | 缓存命中日志（最近 100 条） |
 | GET | `/api/analytics/heatmap` | 活动热力图 |
 | GET | `/api/analytics/error-trend` | 错误率趋势 |
+| GET | `/api/version` | 获取版本号 |
 | GET | `/api/export` | 数据导出（CSV/JSON） |
 
 ## Docker
