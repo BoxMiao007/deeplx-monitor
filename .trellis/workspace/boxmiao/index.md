@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-05-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~109 | Active |
+| `journal-1.md` | ~142 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-05-19 | 健康检查全端点探测与 tooltip 修复 | `5fb1bc3` | `main` |
 | 3 | 2026-05-19 | 版本号显示、GitHub 图标、Release 工作流 | `538b7c0`, `06686ae` | `main` |
 | 2 | 2026-05-19 | 设置抽屉版本号与 GitHub 图标 | `538b7c0` | `main` |
 | 1 | 2026-05-18 | 重构日志保留策略与请求日志简化 | `1fc3bea`, `8d68ea0`, `f42c839` | `main` |

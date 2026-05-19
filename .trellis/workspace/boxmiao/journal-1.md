@@ -107,3 +107,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 健康检查全端点探测与 tooltip 修复
+
+**Date**: 2026-05-19
+**Task**: 健康检查全端点探测与 tooltip 修复
+**Branch**: `main`
+
+### Summary
+
+health_check API 改用 check_all() 探测所有端点并立即刷新前端状态；修复 tooltip 被 overflow:hidden 裁剪和 scoped CSS 优先级问题
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5fb1bc3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
