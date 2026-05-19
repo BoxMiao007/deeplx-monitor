@@ -159,14 +159,14 @@ pub async fn translate(
     // 如果失败，尝试重试下一个端点
     let (endpoint_used, result) = match &result {
         Ok(_) => (endpoint, result),
-        Err(_) => {
-            state.load_balancer.report_failure(&endpoint).await;
+        Err(e) => {
+            state.load_balancer.report_failure(&endpoint, &e.to_string()).await;
             if let Some(next_ep) = state.load_balancer.select_excluding(endpoint.index()).await {
                 let retry_result = send_to_upstream(&state, &next_ep, &body).await;
                 match &retry_result {
                     Ok(_) => (next_ep, retry_result),
-                    Err(_) => {
-                        state.load_balancer.report_failure(&next_ep).await;
+                    Err(e) => {
+                        state.load_balancer.report_failure(&next_ep, &e.to_string()).await;
                         (next_ep, retry_result)
                     }
                 }

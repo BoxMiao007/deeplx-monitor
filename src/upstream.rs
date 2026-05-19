@@ -14,6 +14,7 @@ pub struct EndpointStatus {
     pub total_requests: u64,
     pub total_successes: u64,
     pub avg_latency_ms: u64,
+    pub last_error: Option<String>,
 }
 
 struct EndpointState {
@@ -23,6 +24,7 @@ struct EndpointState {
     total_requests: AtomicU64,
     total_successes: AtomicU64,
     latency_sum_ms: AtomicU64,
+    last_error: RwLock<Option<String>>,
 }
 
 pub struct LoadBalancer {
@@ -73,6 +75,7 @@ impl LoadBalancer {
                     total_requests: AtomicU64::new(0),
                     total_successes: AtomicU64::new(0),
                     latency_sum_ms: AtomicU64::new(0),
+                    last_error: RwLock::new(None),
                 })
             })
             .collect();
@@ -103,6 +106,7 @@ impl LoadBalancer {
                     total_requests: AtomicU64::new(0),
                     total_successes: AtomicU64::new(0),
                     latency_sum_ms: AtomicU64::new(0),
+                    last_error: RwLock::new(None),
                 })
             })
             .collect();
@@ -197,17 +201,19 @@ impl LoadBalancer {
         ep.latency_sum_ms.fetch_add(latency_ms, Ordering::Relaxed);
         *ep.consecutive_failures.write().await = 0;
         *ep.healthy.write().await = true;
+        *ep.last_error.write().await = None;
         *self.last_known_good.write().await = Some(endpoint.index);
     }
 
     /// 报告请求失败
-    pub async fn report_failure(&self, endpoint: &SelectedEndpoint) {
+    pub async fn report_failure(&self, endpoint: &SelectedEndpoint, error: &str) {
         let endpoints = self.endpoints.read().await;
         if endpoint.index >= endpoints.len() {
             return;
         }
         let ep = &endpoints[endpoint.index];
         ep.total_requests.fetch_add(1, Ordering::Relaxed);
+        *ep.last_error.write().await = Some(error.to_string());
         let mut failures = ep.consecutive_failures.write().await;
         *failures += 1;
         let max_failures = *self.max_failures.read().await;
@@ -236,15 +242,23 @@ impl LoadBalancer {
             }
 
             let start = Instant::now();
-            if let Ok(resp) = req.send().await {
-                let latency = start.elapsed().as_millis() as u64;
-                if resp.status().is_success() {
-                    *ep.consecutive_failures.write().await = 0;
-                    *ep.healthy.write().await = true;
-                    ep.latency_sum_ms.fetch_add(latency, Ordering::Relaxed);
-                    ep.total_requests.fetch_add(1, Ordering::Relaxed);
-                    ep.total_successes.fetch_add(1, Ordering::Relaxed);
-                    tracing::info!("Endpoint '{}' recovered", ep.config.name);
+            match req.send().await {
+                Ok(resp) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    if resp.status().is_success() {
+                        *ep.consecutive_failures.write().await = 0;
+                        *ep.healthy.write().await = true;
+                        *ep.last_error.write().await = None;
+                        ep.latency_sum_ms.fetch_add(latency, Ordering::Relaxed);
+                        ep.total_requests.fetch_add(1, Ordering::Relaxed);
+                        ep.total_successes.fetch_add(1, Ordering::Relaxed);
+                        tracing::info!("Endpoint '{}' recovered", ep.config.name);
+                    } else {
+                        *ep.last_error.write().await = Some(format!("HTTP {}", resp.status().as_u16()));
+                    }
+                }
+                Err(e) => {
+                    *ep.last_error.write().await = Some(format!("{}", e));
                 }
             }
         }
@@ -270,6 +284,7 @@ impl LoadBalancer {
             ep.total_requests.store(total, Ordering::Relaxed);
             ep.total_successes.store(succ, Ordering::Relaxed);
             ep.latency_sum_ms.store(lat_sum, Ordering::Relaxed);
+            *ep.last_error.write().await = if healthy { None } else { Some("Connection timeout (demo)".to_string()) };
         }
 
         // 标记一个 last-known-good
@@ -296,6 +311,7 @@ impl LoadBalancer {
                 total_requests: total,
                 total_successes: successes,
                 avg_latency_ms: avg_latency,
+                last_error: ep.last_error.read().await.clone(),
             });
         }
         result

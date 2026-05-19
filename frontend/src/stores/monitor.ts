@@ -87,6 +87,7 @@ export interface EndpointStatus {
   total_requests: number
   total_successes: number
   avg_latency_ms: number
+  last_error: string | null
 }
 
 export interface CacheStats {

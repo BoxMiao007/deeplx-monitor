@@ -178,7 +178,7 @@
             <div class="upstream-grid">
               <div class="upstream-grid-item">
                 <span class="upstream-grid-label">状态</span>
-                <span :class="['badge', activeUpstreamData.healthy ? 'badge-success' : 'badge-error']">{{ activeUpstreamData.healthy ? '健康' : '不健康' }}</span>
+                <span :class="['badge', 'badge-with-tooltip', activeUpstreamData.healthy ? 'badge-success' : 'badge-error']" :data-tooltip="activeUpstreamData.last_error || null">{{ activeUpstreamData.healthy ? '健康' : '不健康' }}</span>
               </div>
               <div class="upstream-grid-item">
                 <span class="upstream-grid-label">平均延迟</span>

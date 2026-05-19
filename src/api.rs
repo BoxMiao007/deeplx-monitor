@@ -206,22 +206,24 @@ pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
                     error: None,
                 }
             } else {
-                lb.report_failure(&endpoint).await;
+                let err = format!("HTTP {}", status_code);
+                lb.report_failure(&endpoint, &err).await;
                 HealthStatus {
                     status: "error".to_string(),
                     latency_ms: Some(latency_ms),
                     checked_at: Some(chrono_now()),
-                    error: Some(format!("HTTP {}", status_code)),
+                    error: Some(err),
                 }
             }
         }
         Err(e) => {
-            lb.report_failure(&endpoint).await;
+            let err = e.to_string();
+            lb.report_failure(&endpoint, &err).await;
             HealthStatus {
                 status: "error".to_string(),
                 latency_ms: Some(latency_ms),
                 checked_at: Some(chrono_now()),
-                error: Some(e.to_string()),
+                error: Some(err),
             }
         }
     };
