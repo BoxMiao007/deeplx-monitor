@@ -272,3 +272,36 @@ health_check API 改用 check_all() 探测所有端点并立即刷新前端状�
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: 修复迷你柱状图单日数据颜色
+
+**Date**: 2026-05-20
+**Task**: 修复迷你柱状图单日数据颜色
+**Branch**: `main`
+
+### Summary
+
+修复 buildHeatColors 在只有 1 天数据时错误返回红色的 bug，单日数据现在正确显示绿色
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `81c584a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
