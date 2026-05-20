@@ -935,6 +935,7 @@ const langBarMaxes = computed(() => ({
 
 function buildHeatColors(values: number[]) {
   if (!values.length) return []
+  if (values.length === 1) return ['rgba(14, 203, 129, 0.95)']
 
   const indexed = values.map((value, index) => ({ value, index }))
   indexed.sort((a, b) => a.value - b.value || a.index - b.index)
