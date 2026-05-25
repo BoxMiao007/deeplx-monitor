@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "deeplx_monitor"
-version = "1.3.0"
+version = "1.3.2"
 dependencies = [
  "arc-swap",
  "axum",
