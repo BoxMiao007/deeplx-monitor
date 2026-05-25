@@ -1,0 +1,28 @@
+@mixin card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 24px;
+}
+
+@mixin glass {
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+@mixin transition($props: all) {
+  transition: $props 150ms ease;
+}
+
+@mixin truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@mixin responsive($breakpoint: 768px) {
+  @media (max-width: $breakpoint) {
+    @content;
+  }
+}
