@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DeepLX Monitor — a translation proxy and monitoring dashboard for DeepLX API. Supports multi-upstream load balancing, translation caching, config hot-reload, and a Vue 3 dashboard with usage stats, charts, and health monitoring.
+DeepLX Monitor — a translation proxy and monitoring dashboard for DeepLX API. Supports multi-upstream load balancing, translation caching, config hot-reload, and a React dashboard with usage stats, charts, and health monitoring.
 
 ## Tech Stack
 
 - **Backend**: Rust (Axum + Tokio), SQLite via `rusqlite`, static asset embedding via `rust-embed`, moka (LRU cache), notify (file watcher)
-- **Frontend**: Vue 3 + TypeScript + Vite, Pinia for state, Chart.js for charts (single-page dashboard with settings drawer)
+- **Frontend**: React 19 + TypeScript + Vite, Zustand for state, Chart.js + Recharts for charts, SCSS Modules, react-i18next (single-page dashboard with 5 tabs)
 - **Build output**: Frontend builds to `../dist/` (project root `dist/`), Rust binary embeds `dist/` at compile time
 
 ## Commands
@@ -146,7 +146,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **deeplx-monitor** (1070 symbols, 1901 relationships, 65 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **deeplx-monitor** (944 symbols, 1754 relationships, 54 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
