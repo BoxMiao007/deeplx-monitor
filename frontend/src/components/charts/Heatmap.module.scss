@@ -1,0 +1,37 @@
+.container {
+  overflow-x: auto;
+}
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: fit-content;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 40px repeat(24, 1fr);
+  gap: 2px;
+}
+
+.xLabel, .yLabel {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.yLabel {
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+
+.cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  min-width: 16px;
+  min-height: 16px;
+}
