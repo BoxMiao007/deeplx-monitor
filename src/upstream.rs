@@ -47,6 +47,7 @@ pub struct SelectedEndpoint {
     url: String,
     api_key: String,
     index: usize,
+    name: String,
 }
 
 impl SelectedEndpoint {
@@ -60,6 +61,10 @@ impl SelectedEndpoint {
 
     pub fn index(&self) -> usize {
         self.index
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -150,6 +155,7 @@ impl LoadBalancer {
                     url: ep.config.url.clone(),
                     api_key: ep.config.api_key.clone(),
                     index: idx,
+                    name: ep.config.name.clone(),
                 });
             }
         }
@@ -162,6 +168,7 @@ impl LoadBalancer {
                     url: ep.config.url.clone(),
                     api_key: ep.config.api_key.clone(),
                     index: idx,
+                    name: ep.config.name.clone(),
                 });
             }
         }
@@ -172,6 +179,7 @@ impl LoadBalancer {
             url: ep.config.url.clone(),
             api_key: ep.config.api_key.clone(),
             index: 0,
+            name: ep.config.name.clone(),
         })
     }
 
@@ -191,6 +199,7 @@ impl LoadBalancer {
                     url: ep.config.url.clone(),
                     api_key: ep.config.api_key.clone(),
                     index: idx,
+                    name: ep.config.name.clone(),
                 });
             }
         }
@@ -451,8 +460,8 @@ mod tests {
         let lb = LoadBalancer::new(make_endpoints(2), 1);
 
         // 让所有端点不健康
-        let ep0 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
-        let ep1 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 1 };
+        let ep0 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0, name: String::new() };
+        let ep1 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 1, name: String::new() };
         lb.report_failure(&ep0, "err").await;
         lb.report_failure(&ep1, "err").await;
 
@@ -465,7 +474,7 @@ mod tests {
     async fn test_report_success_resets_failures() {
         let lb = LoadBalancer::new(make_endpoints(2), 3);
 
-        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0, name: String::new() };
         lb.report_failure(&ep, "err1").await;
         lb.report_failure(&ep, "err2").await;
         lb.report_success(&ep, 100).await;
@@ -503,7 +512,7 @@ mod tests {
     async fn test_reload_resets_state() {
         let lb = LoadBalancer::new(make_endpoints(2), 3);
 
-        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0, name: String::new() };
         lb.report_failure(&ep, "err").await;
         lb.report_failure(&ep, "err").await;
         lb.report_failure(&ep, "err").await;
@@ -519,7 +528,7 @@ mod tests {
     async fn test_status_avg_latency() {
         let lb = LoadBalancer::new(make_endpoints(1), 3);
 
-        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
+        let ep = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0, name: String::new() };
         lb.report_success(&ep, 100).await;
         lb.report_success(&ep, 200).await;
         lb.report_success(&ep, 300).await;
@@ -535,12 +544,12 @@ mod tests {
         let lb = LoadBalancer::new(make_endpoints(3), 1);
 
         // 先让 ep-1 成功（设为 last-known-good）
-        let ep1 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 1 };
+        let ep1 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 1, name: String::new() };
         lb.report_success(&ep1, 50).await;
 
         // 让所有端点不健康
-        let ep0 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0 };
-        let ep2 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 2 };
+        let ep0 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 0, name: String::new() };
+        let ep2 = SelectedEndpoint { url: String::new(), api_key: String::new(), index: 2, name: String::new() };
         lb.report_failure(&ep0, "err").await;
         // ep1 刚成功过，是健康的，需要让它也失败
         lb.report_failure(&ep1, "err").await;

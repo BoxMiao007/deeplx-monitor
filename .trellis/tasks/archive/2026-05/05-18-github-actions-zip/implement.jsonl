@@ -1,3 +1,0 @@
-{"file": ".trellis/tasks/05-18-github-actions-zip/prd.md", "reason": "Task requirements and technical approach"}
-{"file": "Cargo.toml", "reason": "Binary name and dependencies for build configuration"}
-{"file": "Dockerfile", "reason": "Reference for build steps (node version, rust version, build order)"}

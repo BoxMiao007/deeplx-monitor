@@ -170,8 +170,8 @@ async fn main() {
         .route("/api/version", get(api::version))
         .route("/api/export", get(api::export))
         .route("/favicon.svg", get(favicon_handler))
-        .route("/", get(spa_handler))
         .route("/assets/*path", get(asset_handler))
+        .fallback(get(spa_handler))
         .layer(CompressionLayer::new())
         .layer(
             CorsLayer::new()
@@ -187,7 +187,16 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn spa_handler() -> Response {
+async fn spa_handler(uri: axum::http::Uri) -> Response {
+    // 如果请求的是静态资源文件（有扩展名），尝试直接提供
+    let path = uri.path().trim_start_matches('/');
+    if !path.is_empty() && path.contains('.') {
+        let resp = serve_file(path);
+        if resp.status() != StatusCode::NOT_FOUND {
+            return resp;
+        }
+    }
+    // 否则返回 index.html（SPA history mode）
     serve_file("index.html")
 }
 

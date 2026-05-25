@@ -58,6 +58,8 @@
         </div>
       </section>
 
+      <TabNav />
+
       <section class="summary-grid">
         <article class="stat-card card emphasis-card">
           <div class="stat-head">
@@ -723,6 +725,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useMonitorStore } from '@/stores/monitor'
 import type { FullConfig } from '@/stores/monitor'
+import TabNav from '@/components/TabNav.vue'
 
 import type { Chart as ChartType } from 'chart.js'
 

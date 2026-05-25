@@ -1,13 +1,12 @@
 <template>
   <div id="app">
     <main class="main">
-      <Dashboard />
+      <router-view />
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import Dashboard from '@/pages/Dashboard.vue'
 </script>
 
 <style scoped>

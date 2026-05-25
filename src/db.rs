@@ -58,6 +58,9 @@ impl Database {
             if !cols.iter().any(|c| c == "target_chars") {
                 conn.execute("ALTER TABLE translation_logs ADD COLUMN target_chars INTEGER NOT NULL DEFAULT 0", [])?;
             }
+            if !cols.iter().any(|c| c == "endpoint_name") {
+                conn.execute("ALTER TABLE translation_logs ADD COLUMN endpoint_name TEXT NOT NULL DEFAULT ''", [])?;
+            }
         }
 
         // 迁移：修复 ALTER TABLE DEFAULT chars 产生的文本值（SQLite 将其视为字面量 "chars"）
@@ -81,6 +84,11 @@ impl Database {
             [],
         )?;
 
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_endpoint_name ON translation_logs(endpoint_name)",
+            [],
+        )?;
+
         // 缓存统计持久化列（重启后恢复命中/未命中计数）
         let _ = conn.execute(
             "ALTER TABLE stats_anchor ADD COLUMN cache_hits INTEGER NOT NULL DEFAULT 0",
@@ -91,15 +99,55 @@ impl Database {
             [],
         );
 
+        // 迁移：将 stats_anchor 从单行表（CHECK id=1）重建为多行表（支持 per-endpoint 行）
+        // 检查是否有 endpoint_name 列，如果没有则需要重建
+        {
+            let mut stmt = conn.prepare_cached("PRAGMA table_info(stats_anchor)")?;
+            let anchor_cols: Vec<String> = stmt.query_map([], |row| row.get(1))?.filter_map(|r| r.ok()).collect();
+            if !anchor_cols.iter().any(|c| c == "endpoint_name") {
+                // 读取现有数据
+                let (total_req, total_chars, cache_hits, cache_misses): (i64, i64, i64, i64) = conn
+                    .prepare_cached("SELECT total_requests, total_chars, cache_hits, cache_misses FROM stats_anchor WHERE id = 1")
+                    .and_then(|mut s| s.query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))))
+                    .unwrap_or((0, 0, 0, 0));
+
+                // 重建表（去掉 CHECK 约束，添加 endpoint_name 列）
+                conn.execute("DROP TABLE stats_anchor", [])?;
+                conn.execute(
+                    "CREATE TABLE stats_anchor (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        total_requests INTEGER NOT NULL DEFAULT 0,
+                        total_chars INTEGER NOT NULL DEFAULT 0,
+                        anchor_date TEXT NOT NULL DEFAULT '',
+                        cache_hits INTEGER NOT NULL DEFAULT 0,
+                        cache_misses INTEGER NOT NULL DEFAULT 0,
+                        endpoint_name TEXT NOT NULL DEFAULT ''
+                    )",
+                    [],
+                )?;
+                conn.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_stats_anchor_endpoint ON stats_anchor(endpoint_name)",
+                    [],
+                )?;
+                // 恢复全局行
+                conn.execute(
+                    "INSERT INTO stats_anchor (total_requests, total_chars, anchor_date, cache_hits, cache_misses, endpoint_name)
+                     VALUES (?1, ?2, '', ?3, ?4, '')",
+                    params![total_req, total_chars, cache_hits, cache_misses],
+                )?;
+            }
+        }
+
+        // 确保全局行存在
         conn.execute(
-            "INSERT OR IGNORE INTO stats_anchor (id, total_requests, total_chars, anchor_date)
-             VALUES (1, 0, 0, '')",
+            "INSERT OR IGNORE INTO stats_anchor (total_requests, total_chars, anchor_date, endpoint_name)
+             VALUES (0, 0, '', '')",
             [],
         )?;
 
-        // 迁移：若 stats_anchor 计数为 0 但已有日志，从现有日志补种累计值
+        // 迁移：若 stats_anchor 全局行计数为 0 但已有日志，从现有日志补种累计值
         let (anchor_req, _): (i64, i64) = conn.prepare_cached(
-            "SELECT total_requests, total_chars FROM stats_anchor WHERE id = 1"
+            "SELECT total_requests, total_chars FROM stats_anchor WHERE endpoint_name = ''"
         )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         if anchor_req == 0 {
             let (log_count, log_chars): (i64, i64) = conn.prepare_cached(
@@ -107,7 +155,7 @@ impl Database {
             )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
             if log_count > 0 {
                 conn.execute(
-                    "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE id = 1",
+                    "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE endpoint_name = ''",
                     params![log_count, log_chars],
                 )?;
             }
@@ -124,17 +172,30 @@ impl Database {
         target_chars: i64,
         status: &str,
         error_msg: Option<&str>,
+        endpoint_name: &str,
     ) -> SqliteResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg)
-             VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6)",
-            params![source_chars, source_lang, target_lang, target_chars, status, error_msg],
+            "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, endpoint_name)
+             VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7)",
+            params![source_chars, source_lang, target_lang, target_chars, status, error_msg, endpoint_name],
         )?;
+        // 更新全局行
         conn.execute(
-            "UPDATE stats_anchor SET total_requests = total_requests + 1, total_chars = total_chars + ?1 WHERE id = 1",
+            "UPDATE stats_anchor SET total_requests = total_requests + 1, total_chars = total_chars + ?1 WHERE endpoint_name = ''",
             params![source_chars],
         )?;
+        // 更新端点行（如果 endpoint_name 非空）
+        if !endpoint_name.is_empty() {
+            conn.execute(
+                "INSERT OR IGNORE INTO stats_anchor (total_requests, total_chars, anchor_date, endpoint_name) VALUES (0, 0, '', ?1)",
+                params![endpoint_name],
+            )?;
+            conn.execute(
+                "UPDATE stats_anchor SET total_requests = total_requests + 1, total_chars = total_chars + ?1 WHERE endpoint_name = ?2",
+                params![source_chars, endpoint_name],
+            )?;
+        }
         Ok(conn.last_insert_rowid())
     }
 
@@ -142,7 +203,7 @@ impl Database {
     pub fn save_cache_stats(&self, hits: u64, misses: u64) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE stats_anchor SET cache_hits = ?1, cache_misses = ?2 WHERE id = 1",
+            "UPDATE stats_anchor SET cache_hits = ?1, cache_misses = ?2 WHERE endpoint_name = ''",
             params![hits as i64, misses as i64],
         )?;
         Ok(())
@@ -151,7 +212,7 @@ impl Database {
     pub fn load_cache_stats(&self) -> (u64, u64) {
         let conn = self.conn.lock().unwrap();
         let result = conn.prepare_cached(
-            "SELECT cache_hits, cache_misses FROM stats_anchor WHERE id = 1",
+            "SELECT cache_hits, cache_misses FROM stats_anchor WHERE endpoint_name = ''",
         )
         .and_then(|mut stmt| {
             stmt.query_row([], |row| {
@@ -167,18 +228,41 @@ impl Database {
     pub fn get_current_log_totals(&self) -> SqliteResult<(i64, i64)> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT total_requests, total_chars FROM stats_anchor WHERE id = 1",
+            "SELECT total_requests, total_chars FROM stats_anchor WHERE endpoint_name = ''",
         )?;
         stmt.query_row([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
     }
 
-    pub fn get_period_stats(&self, days: u32) -> SqliteResult<(i64, i64)> {
+    /// 获取指定端点的累计统计
+    pub fn get_endpoint_totals(&self, endpoint_name: &str) -> SqliteResult<(i64, i64)> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare_cached(
-            "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs
-             WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')"
+            "SELECT total_requests, total_chars FROM stats_anchor WHERE endpoint_name = ?1",
         )?;
-        stmt.query_row(params![days], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        stmt.query_row(params![endpoint_name], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+            .or(Ok((0, 0)))
+    }
+
+    pub fn get_period_stats(&self, days: u32) -> SqliteResult<(i64, i64)> {
+        self.get_period_stats_filtered(days, None)
+    }
+
+    pub fn get_period_stats_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let ep_filter = endpoint.unwrap_or("");
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')"
+            )?;
+            stmt.query_row(params![days], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2"
+            )?;
+            stmt.query_row(params![days, ep_filter], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        }
     }
 
     pub fn get_requests(
@@ -186,21 +270,43 @@ impl Database {
         page: u32,
         page_size: u32,
     ) -> SqliteResult<(Vec<RequestLog>, i64)> {
+        self.get_requests_filtered(page, page_size, None)
+    }
+
+    pub fn get_requests_filtered(
+        &self,
+        page: u32,
+        page_size: u32,
+        endpoint: Option<&str>,
+    ) -> SqliteResult<(Vec<RequestLog>, i64)> {
         let conn = self.conn.lock().unwrap();
         let offset = (page - 1) * page_size;
+        let ep_filter = endpoint.unwrap_or("");
 
-        let mut stmt = conn.prepare_cached(
-            "SELECT COUNT(*) FROM translation_logs"
-        )?;
-        let total: i64 = stmt.query_row([], |row| row.get(0))?;
+        let total: i64 = if ep_filter.is_empty() {
+            conn.prepare_cached("SELECT COUNT(*) FROM translation_logs")?
+                .query_row([], |row| row.get(0))?
+        } else {
+            conn.prepare_cached("SELECT COUNT(*) FROM translation_logs WHERE endpoint_name = ?1")?
+                .query_row(params![ep_filter], |row| row.get(0))?
+        };
 
-        let mut stmt = conn.prepare_cached(
-            "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
-             FROM translation_logs ORDER BY id DESC LIMIT ?1 OFFSET ?2"
-        )?;
-        let rows = stmt.query_map(params![page_size, offset], map_request_log)?;
         let mut logs = Vec::new();
-        for row in rows { logs.push(row?); }
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
+                 FROM translation_logs ORDER BY id DESC LIMIT ?1 OFFSET ?2"
+            )?;
+            let rows = stmt.query_map(params![page_size, offset], map_request_log)?;
+            for row in rows { logs.push(row?); }
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
+                 FROM translation_logs WHERE endpoint_name = ?3 ORDER BY id DESC LIMIT ?1 OFFSET ?2"
+            )?;
+            let rows = stmt.query_map(params![page_size, offset, ep_filter], map_request_log)?;
+            for row in rows { logs.push(row?); }
+        };
 
         Ok((logs, total))
     }
@@ -230,7 +336,7 @@ impl Database {
         conn.execute("DELETE FROM translation_logs", [])?;
         conn.execute("DELETE FROM sqlite_sequence WHERE name = 'translation_logs'", [])?;
         conn.execute(
-            "UPDATE stats_anchor SET cache_hits = 0, cache_misses = 0 WHERE id = 1",
+            "UPDATE stats_anchor SET cache_hits = 0, cache_misses = 0 WHERE endpoint_name = ''",
             [],
         )?;
 
@@ -305,76 +411,131 @@ impl Database {
             "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs"
         )?.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         conn.execute(
-            "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE id = 1",
+            "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE endpoint_name = ''",
             params![count, chars],
         )?;
+        // 清除端点行（demo 数据不含 endpoint_name）
+        conn.execute("DELETE FROM stats_anchor WHERE endpoint_name != ''", [])?;
 
         Ok(())
     }
 
     pub fn get_hourly_stats(&self, hours: u32) -> SqliteResult<Vec<HourlyStat>> {
+        self.get_hourly_stats_filtered(hours, None)
+    }
+
+    pub fn get_hourly_stats_filtered(&self, hours: u32, endpoint: Option<&str>) -> SqliteResult<Vec<HourlyStat>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
-                    COUNT(*) as count,
-                    COALESCE(SUM(source_chars), 0) as chars
-             FROM translation_logs
-             WHERE created_at >= datetime('now', '-' || ?1 || ' hours', 'localtime')
-             GROUP BY hour
-             ORDER BY hour"
-        )?;
-        let rows = stmt.query_map(params![hours], |row| {
-            Ok(HourlyStat {
-                hour: row.get(0)?,
-                count: row.get(1)?,
-                chars: row.get(2)?,
-            })
-        })?;
-        rows.collect()
+        let ep_filter = endpoint.unwrap_or("");
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
+                        COUNT(*) as count,
+                        COALESCE(SUM(source_chars), 0) as chars
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' hours', 'localtime')
+                 GROUP BY hour
+                 ORDER BY hour"
+            )?;
+            let rows = stmt.query_map(params![hours], |row| {
+                Ok(HourlyStat { hour: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+            })?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
+                        COUNT(*) as count,
+                        COALESCE(SUM(source_chars), 0) as chars
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' hours', 'localtime') AND endpoint_name = ?2
+                 GROUP BY hour
+                 ORDER BY hour"
+            )?;
+            let rows = stmt.query_map(params![hours, ep_filter], |row| {
+                Ok(HourlyStat { hour: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_lang_stats(&self) -> SqliteResult<Vec<LangStat>> {
+        self.get_lang_stats_filtered(None)
+    }
+
+    pub fn get_lang_stats_filtered(&self, endpoint: Option<&str>) -> SqliteResult<Vec<LangStat>> {
         let conn = self.conn.lock().unwrap();
-        let query = r#"
-            SELECT source_lang, SUM(source_chars), 0 AS target_chars
-            FROM translation_logs GROUP BY source_lang
-            UNION ALL
-            SELECT target_lang, 0 AS source_chars, SUM(target_chars)
-            FROM translation_logs GROUP BY target_lang
-        "#;
-        let mut stmt = conn.prepare_cached(query)?;
-        let rows = stmt.query_map([], |row| {
-            Ok(LangStat {
-                lang: row.get(0)?,
-                source_chars: row.get(1)?,
-                target_chars: row.get(2)?,
-            })
-        })?;
-        rows.collect()
+        let ep_filter = endpoint.unwrap_or("");
+        if ep_filter.is_empty() {
+            let query = r#"
+                SELECT source_lang, SUM(source_chars), 0 AS target_chars
+                FROM translation_logs GROUP BY source_lang
+                UNION ALL
+                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
+                FROM translation_logs GROUP BY target_lang
+            "#;
+            let mut stmt = conn.prepare_cached(query)?;
+            let rows = stmt.query_map([], |row| {
+                Ok(LangStat { lang: row.get(0)?, source_chars: row.get(1)?, target_chars: row.get(2)? })
+            })?;
+            rows.collect()
+        } else {
+            let query = r#"
+                SELECT source_lang, SUM(source_chars), 0 AS target_chars
+                FROM translation_logs WHERE endpoint_name = ?1 GROUP BY source_lang
+                UNION ALL
+                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
+                FROM translation_logs WHERE endpoint_name = ?1 GROUP BY target_lang
+            "#;
+            let mut stmt = conn.prepare_cached(query)?;
+            let rows = stmt.query_map(params![ep_filter], |row| {
+                Ok(LangStat { lang: row.get(0)?, source_chars: row.get(1)?, target_chars: row.get(2)? })
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_lang_stats_by_days(&self, days: u32) -> SqliteResult<Vec<LangStat>> {
+        self.get_lang_stats_by_days_filtered(days, None)
+    }
+
+    pub fn get_lang_stats_by_days_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<LangStat>> {
         let conn = self.conn.lock().unwrap();
-        let query = r#"
-            SELECT source_lang, SUM(source_chars), 0 AS target_chars
-            FROM translation_logs
-            WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-            GROUP BY source_lang
-            UNION ALL
-            SELECT target_lang, 0 AS source_chars, SUM(target_chars)
-            FROM translation_logs
-            WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-            GROUP BY target_lang
-        "#;
-        let mut stmt = conn.prepare_cached(query)?;
-        let rows = stmt.query_map(params![days], |row| {
-            Ok(LangStat {
-                lang: row.get(0)?,
-                source_chars: row.get(1)?,
-                target_chars: row.get(2)?,
-            })
-        })?;
-        rows.collect()
+        let ep_filter = endpoint.unwrap_or("");
+        if ep_filter.is_empty() {
+            let query = r#"
+                SELECT source_lang, SUM(source_chars), 0 AS target_chars
+                FROM translation_logs
+                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                GROUP BY source_lang
+                UNION ALL
+                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
+                FROM translation_logs
+                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                GROUP BY target_lang
+            "#;
+            let mut stmt = conn.prepare_cached(query)?;
+            let rows = stmt.query_map(params![days], |row| {
+                Ok(LangStat { lang: row.get(0)?, source_chars: row.get(1)?, target_chars: row.get(2)? })
+            })?;
+            rows.collect()
+        } else {
+            let query = r#"
+                SELECT source_lang, SUM(source_chars), 0 AS target_chars
+                FROM translation_logs
+                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                GROUP BY source_lang
+                UNION ALL
+                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
+                FROM translation_logs
+                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                GROUP BY target_lang
+            "#;
+            let mut stmt = conn.prepare_cached(query)?;
+            let rows = stmt.query_map(params![days, ep_filter], |row| {
+                Ok(LangStat { lang: row.get(0)?, source_chars: row.get(1)?, target_chars: row.get(2)? })
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_lang_hourly_stats(&self) -> SqliteResult<Vec<LangHourlyUsage>> {
@@ -448,120 +609,205 @@ impl Database {
     }
 
     pub fn get_daily_stats(&self, days: u32) -> SqliteResult<Vec<DailyStat>> {
+        self.get_daily_stats_filtered(days, None)
+    }
+
+    pub fn get_daily_stats_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<DailyStat>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT strftime('%Y-%m-%d', created_at) as day,
-                    COUNT(*) as count,
-                    COALESCE(SUM(source_chars), 0) as chars
-             FROM translation_logs
-             WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-             GROUP BY day
-             ORDER BY day"
-        )?;
-        let rows = stmt.query_map(params![days], |row| {
-            Ok(DailyStat {
-                day: row.get(0)?,
-                count: row.get(1)?,
-                chars: row.get(2)?,
-            })
-        })?;
-        rows.collect()
+        let ep_filter = endpoint.unwrap_or("");
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d', created_at) as day,
+                        COUNT(*) as count,
+                        COALESCE(SUM(source_chars), 0) as chars
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                 GROUP BY day
+                 ORDER BY day"
+            )?;
+            let rows = stmt.query_map(params![days], |row| {
+                Ok(DailyStat { day: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+            })?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d', created_at) as day,
+                        COUNT(*) as count,
+                        COALESCE(SUM(source_chars), 0) as chars
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                 GROUP BY day
+                 ORDER BY day"
+            )?;
+            let rows = stmt.query_map(params![days, ep_filter], |row| {
+                Ok(DailyStat { day: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_heatmap_by_weekday(&self, days: u32) -> SqliteResult<Vec<HeatmapCell>> {
+        self.get_heatmap_by_weekday_filtered(days, None)
+    }
+
+    pub fn get_heatmap_by_weekday_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<HeatmapCell>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT CAST(strftime('%w', created_at) AS INTEGER) as weekday,
-                    CAST(strftime('%H', created_at) AS INTEGER) as hour,
-                    COUNT(*) as count
-             FROM translation_logs
-             WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-             GROUP BY weekday, hour
-             ORDER BY weekday, hour"
-        )?;
-        let rows = stmt.query_map(params![days], |row| {
-            let weekday: u32 = row.get(0)?;
-            let hour: u32 = row.get(1)?;
-            let count: i64 = row.get(2)?;
-            let weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-            Ok(HeatmapCell {
-                x: weekday_names[weekday as usize].to_string(),
-                y: hour,
-                count,
-            })
-        })?;
-        rows.collect()
+        let ep_filter = endpoint.unwrap_or("");
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT CAST(strftime('%w', created_at) AS INTEGER) as weekday,
+                        CAST(strftime('%H', created_at) AS INTEGER) as hour,
+                        COUNT(*) as count
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                 GROUP BY weekday, hour
+                 ORDER BY weekday, hour"
+            )?;
+            let rows = stmt.query_map(params![days], |row| {
+                let weekday: u32 = row.get(0)?;
+                let hour: u32 = row.get(1)?;
+                let count: i64 = row.get(2)?;
+                let weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+                Ok(HeatmapCell { x: weekday_names[weekday as usize].to_string(), y: hour, count })
+            })?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT CAST(strftime('%w', created_at) AS INTEGER) as weekday,
+                        CAST(strftime('%H', created_at) AS INTEGER) as hour,
+                        COUNT(*) as count
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                 GROUP BY weekday, hour
+                 ORDER BY weekday, hour"
+            )?;
+            let rows = stmt.query_map(params![days, ep_filter], |row| {
+                let weekday: u32 = row.get(0)?;
+                let hour: u32 = row.get(1)?;
+                let count: i64 = row.get(2)?;
+                let weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+                Ok(HeatmapCell { x: weekday_names[weekday as usize].to_string(), y: hour, count })
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_heatmap_by_date(&self, days: u32) -> SqliteResult<Vec<HeatmapCell>> {
+        self.get_heatmap_by_date_filtered(days, None)
+    }
+
+    pub fn get_heatmap_by_date_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<HeatmapCell>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT strftime('%Y-%m-%d', created_at) as day,
-                    CAST(strftime('%H', created_at) AS INTEGER) as hour,
-                    COUNT(*) as count
-             FROM translation_logs
-             WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-             GROUP BY day, hour
-             ORDER BY day, hour"
-        )?;
-        let rows = stmt.query_map(params![days], |row| {
-            Ok(HeatmapCell {
-                x: row.get(0)?,
-                y: row.get(1)?,
-                count: row.get(2)?,
-            })
-        })?;
-        rows.collect()
+        let ep_filter = endpoint.unwrap_or("");
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d', created_at) as day,
+                        CAST(strftime('%H', created_at) AS INTEGER) as hour,
+                        COUNT(*) as count
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                 GROUP BY day, hour
+                 ORDER BY day, hour"
+            )?;
+            let rows = stmt.query_map(params![days], |row| {
+                Ok(HeatmapCell { x: row.get(0)?, y: row.get(1)?, count: row.get(2)? })
+            })?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d', created_at) as day,
+                        CAST(strftime('%H', created_at) AS INTEGER) as hour,
+                        COUNT(*) as count
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                 GROUP BY day, hour
+                 ORDER BY day, hour"
+            )?;
+            let rows = stmt.query_map(params![days, ep_filter], |row| {
+                Ok(HeatmapCell { x: row.get(0)?, y: row.get(1)?, count: row.get(2)? })
+            })?;
+            rows.collect()
+        }
     }
 
     pub fn get_error_trend_hourly(&self, days: u32) -> SqliteResult<Vec<ErrorTrendPoint>> {
+        self.get_error_trend_hourly_filtered(days, None)
+    }
+
+    pub fn get_error_trend_hourly_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<ErrorTrendPoint>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT strftime('%Y-%m-%d %H:00', created_at) as time_bucket,
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
-             FROM translation_logs
-             WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-             GROUP BY time_bucket
-             ORDER BY time_bucket"
-        )?;
-        let rows = stmt.query_map(params![days], |row| {
+        let ep_filter = endpoint.unwrap_or("");
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<ErrorTrendPoint> {
             let total: i64 = row.get(1)?;
             let errors: i64 = row.get(2)?;
             let error_rate = if total > 0 { errors as f64 / total as f64 } else { 0.0 };
-            Ok(ErrorTrendPoint {
-                time: row.get(0)?,
-                total,
-                errors,
-                error_rate,
-            })
-        })?;
-        rows.collect()
+            Ok(ErrorTrendPoint { time: row.get(0)?, total, errors, error_rate })
+        };
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d %H:00', created_at) as time_bucket,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                 GROUP BY time_bucket
+                 ORDER BY time_bucket"
+            )?;
+            let rows = stmt.query_map(params![days], map_row)?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d %H:00', created_at) as time_bucket,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                 GROUP BY time_bucket
+                 ORDER BY time_bucket"
+            )?;
+            let rows = stmt.query_map(params![days, ep_filter], map_row)?;
+            rows.collect()
+        }
     }
 
     pub fn get_error_trend_daily(&self, days: u32) -> SqliteResult<Vec<ErrorTrendPoint>> {
+        self.get_error_trend_daily_filtered(days, None)
+    }
+
+    pub fn get_error_trend_daily_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<ErrorTrendPoint>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare_cached(
-            "SELECT strftime('%Y-%m-%d', created_at) as time_bucket,
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
-             FROM translation_logs
-             WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-             GROUP BY time_bucket
-             ORDER BY time_bucket"
-        )?;
-        let rows = stmt.query_map(params![days], |row| {
+        let ep_filter = endpoint.unwrap_or("");
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<ErrorTrendPoint> {
             let total: i64 = row.get(1)?;
             let errors: i64 = row.get(2)?;
             let error_rate = if total > 0 { errors as f64 / total as f64 } else { 0.0 };
-            Ok(ErrorTrendPoint {
-                time: row.get(0)?,
-                total,
-                errors,
-                error_rate,
-            })
-        })?;
-        rows.collect()
+            Ok(ErrorTrendPoint { time: row.get(0)?, total, errors, error_rate })
+        };
+        if ep_filter.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d', created_at) as time_bucket,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                 GROUP BY time_bucket
+                 ORDER BY time_bucket"
+            )?;
+            let rows = stmt.query_map(params![days], map_row)?;
+            rows.collect()
+        } else {
+            let mut stmt = conn.prepare_cached(
+                "SELECT strftime('%Y-%m-%d', created_at) as time_bucket,
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors
+                 FROM translation_logs
+                 WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                 GROUP BY time_bucket
+                 ORDER BY time_bucket"
+            )?;
+            let rows = stmt.query_map(params![days, ep_filter], map_row)?;
+            rows.collect()
+        }
     }
 
     pub fn get_export_logs(
@@ -706,12 +952,12 @@ mod tests {
     #[test]
     fn test_log_translation_increments_anchor() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
         let (req, chars) = db.get_current_log_totals().unwrap();
         assert_eq!(req, 1);
         assert_eq!(chars, 100);
 
-        db.log_translation("EN", "ZH", 50, 40, "success", None).unwrap();
+        db.log_translation("EN", "ZH", 50, 40, "success", None, "").unwrap();
         let (req, chars) = db.get_current_log_totals().unwrap();
         assert_eq!(req, 2);
         assert_eq!(chars, 150);
@@ -721,7 +967,7 @@ mod tests {
     fn test_cleanup_does_not_decrease_totals() {
         let db = temp_db();
         for i in 0..20 {
-            db.log_translation("EN", "ZH", 10 + i, 8, "success", None).unwrap();
+            db.log_translation("EN", "ZH", 10 + i, 8, "success", None, "").unwrap();
         }
         let (req_before, chars_before) = db.get_current_log_totals().unwrap();
         assert_eq!(req_before, 20);
@@ -738,7 +984,7 @@ mod tests {
     fn test_cleanup_no_op_when_under_limit() {
         let db = temp_db();
         for _ in 0..5 {
-            db.log_translation("EN", "ZH", 10, 8, "success", None).unwrap();
+            db.log_translation("EN", "ZH", 10, 8, "success", None, "").unwrap();
         }
         let deleted = db.cleanup_old_logs(10).unwrap();
         assert_eq!(deleted, 0);
@@ -747,8 +993,8 @@ mod tests {
     #[test]
     fn test_get_period_stats() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
-        db.log_translation("EN", "ZH", 200, 160, "error", Some("timeout")).unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
+        db.log_translation("EN", "ZH", 200, 160, "error", Some("timeout"), "").unwrap();
 
         let (count, chars) = db.get_period_stats(1).unwrap();
         assert_eq!(count, 2);
@@ -759,7 +1005,7 @@ mod tests {
     fn test_get_requests_pagination() {
         let db = temp_db();
         for i in 0..10 {
-            db.log_translation("EN", "ZH", i + 1, 0, "success", None).unwrap();
+            db.log_translation("EN", "ZH", i + 1, 0, "success", None, "").unwrap();
         }
 
         let (items, total) = db.get_requests(1, 5).unwrap();
@@ -777,7 +1023,7 @@ mod tests {
     #[test]
     fn test_error_logging() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 50, 0, "error", Some("upstream timeout")).unwrap();
+        db.log_translation("EN", "ZH", 50, 0, "error", Some("upstream timeout"), "").unwrap();
 
         let (items, _) = db.get_requests(1, 50).unwrap();
         assert_eq!(items[0].status, "error");
@@ -797,7 +1043,7 @@ mod tests {
     fn test_replace_with_demo_data_syncs_anchor() {
         let db = temp_db();
         // 先插入一些正常数据
-        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
         let (req_before, _) = db.get_current_log_totals().unwrap();
         assert_eq!(req_before, 1);
 
@@ -894,9 +1140,9 @@ mod tests {
     #[test]
     fn test_export_with_filters() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
-        db.log_translation("JA", "ZH", 50, 40, "error", Some("fail")).unwrap();
-        db.log_translation("EN", "ZH", 200, 160, "success", None).unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
+        db.log_translation("JA", "ZH", 50, 40, "error", Some("fail"), "").unwrap();
+        db.log_translation("EN", "ZH", 200, 160, "success", None, "").unwrap();
 
         let logs = db.get_export_logs(None, None, Some("JA"), None).unwrap();
         assert_eq!(logs.len(), 1);
@@ -910,7 +1156,7 @@ mod tests {
     #[test]
     fn test_heatmap_by_weekday() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None).unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
         let data = db.get_heatmap_by_weekday(30).unwrap();
         assert!(!data.is_empty());
         let weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -926,7 +1172,7 @@ mod tests {
         let db = temp_db();
         let test_cases: Vec<i64> = vec![1, 50, 100, 999, 12345];
         for chars in &test_cases {
-            db.log_translation("EN", "ZH", *chars, 0, "success", None).unwrap();
+            db.log_translation("EN", "ZH", *chars, 0, "success", None, "").unwrap();
         }
 
         let conn = db.conn.lock().unwrap();
@@ -1010,7 +1256,7 @@ mod tests {
         for i in 0..10 {
             let db = Arc::clone(&db);
             handles.push(thread::spawn(move || {
-                db.log_translation("EN", "ZH", i + 1, 0, "success", None).unwrap();
+                db.log_translation("EN", "ZH", i + 1, 0, "success", None, "").unwrap();
             }));
         }
 

@@ -204,8 +204,9 @@ pub async fn translate(
                 let db = state.db.clone();
                 let log_src = log_source.clone();
                 let tgt_lang = target_lang.clone();
+                let ep_name = endpoint_used.name().to_string();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, target_chars, "success", None) {
+                    if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, target_chars, "success", None, &ep_name) {
                         tracing::warn!("Failed to log translation: {}", e);
                     }
                 });
@@ -222,8 +223,9 @@ pub async fn translate(
                 let log_src = log_source.clone();
                 let tgt_lang = target_lang.clone();
                 let err_clone = err.clone();
+                let ep_name = endpoint_used.name().to_string();
                 tokio::task::spawn_blocking(move || {
-                    if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone)) {
+                    if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone), &ep_name) {
                         tracing::warn!("Failed to log translation: {}", e);
                     }
                 });
@@ -236,8 +238,9 @@ pub async fn translate(
             let log_src = log_source.clone();
             let tgt_lang = target_lang.clone();
             let err_clone = err.clone();
+            let ep_name = endpoint_used.name().to_string();
             tokio::task::spawn_blocking(move || {
-                if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone)) {
+                if let Err(e) = db.log_translation(&log_src, &tgt_lang, source_chars, 0, "error", Some(&err_clone), &ep_name) {
                     tracing::warn!("Failed to log translation: {}", e);
                 }
             });

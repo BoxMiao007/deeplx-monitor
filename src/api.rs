@@ -46,6 +46,7 @@ pub struct ConfigInfo {
 #[derive(Debug, Deserialize)]
 pub struct StatsQuery {
     pub days: Option<u32>,
+    pub endpoint: Option<String>,
 }
 
 pub async fn stats(
@@ -64,12 +65,16 @@ pub async fn stats(
 
     let db = state.db.clone();
     let query_days = query.days;
+    let endpoint_filter = query.endpoint.clone().unwrap_or_default();
     let db_result = tokio::task::spawn_blocking(move || {
-        let today = db.get_period_stats(1).unwrap_or((0, 0));
-        let week = db.get_period_stats(7).unwrap_or((0, 0));
-        let month = db.get_period_stats(30).unwrap_or((0, 0));
+        let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
+        let today = db.get_period_stats_filtered(1, ep).unwrap_or((0, 0));
+        let week = db.get_period_stats_filtered(7, ep).unwrap_or((0, 0));
+        let month = db.get_period_stats_filtered(30, ep).unwrap_or((0, 0));
         let total = if let Some(days) = query_days {
-            db.get_period_stats(days).unwrap_or((0, 0))
+            db.get_period_stats_filtered(days, ep).unwrap_or((0, 0))
+        } else if ep.is_some() {
+            db.get_endpoint_totals(ep.unwrap()).unwrap_or((0, 0))
         } else {
             db.get_current_log_totals().unwrap_or((0, 0))
         };
@@ -106,11 +111,21 @@ pub struct ChartResponse {
     pub daily: Vec<DailyStat>,
 }
 
-pub async fn chart(State(state): State<AppState>) -> impl IntoResponse {
+#[derive(Debug, Deserialize)]
+pub struct ChartQuery {
+    pub endpoint: Option<String>,
+}
+
+pub async fn chart(
+    State(state): State<AppState>,
+    Query(query): Query<ChartQuery>,
+) -> impl IntoResponse {
     let db = state.db.clone();
+    let endpoint_filter = query.endpoint.unwrap_or_default();
     let (hourly, daily) = tokio::task::spawn_blocking(move || {
-        let h = db.get_hourly_stats(24).unwrap_or_default();
-        let d = db.get_daily_stats(30).unwrap_or_default();
+        let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
+        let h = db.get_hourly_stats_filtered(24, ep).unwrap_or_default();
+        let d = db.get_daily_stats_filtered(30, ep).unwrap_or_default();
         (h, d)
     }).await.unwrap_or_default();
     Json(ChartResponse { hourly, daily }).into_response()
@@ -120,6 +135,7 @@ pub async fn chart(State(state): State<AppState>) -> impl IntoResponse {
 pub struct RequestsQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
+    pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,10 +152,12 @@ pub async fn requests(
 ) -> impl IntoResponse {
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(50).clamp(1, 200);
+    let endpoint_filter = query.endpoint.unwrap_or_default();
 
     let db = state.db.clone();
     let (items, total) = tokio::task::spawn_blocking(move || {
-        db.get_requests(page, page_size).unwrap_or((vec![], 0))
+        let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
+        db.get_requests_filtered(page, page_size, ep).unwrap_or((vec![], 0))
     }).await.unwrap_or((vec![], 0));
 
     Json(RequestsResponse {
@@ -379,6 +397,7 @@ pub async fn update_config(
 #[derive(Debug, Deserialize)]
 pub struct LangStatsQuery {
     pub days: Option<u32>,
+    pub endpoint: Option<String>,
 }
 
 pub async fn lang_stats(
@@ -387,11 +406,13 @@ pub async fn lang_stats(
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let days = query.days;
+    let endpoint_filter = query.endpoint.unwrap_or_default();
     let stats = tokio::task::spawn_blocking(move || {
+        let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
         if let Some(d) = days {
-            db.get_lang_stats_by_days(d).unwrap_or_default()
+            db.get_lang_stats_by_days_filtered(d, ep).unwrap_or_default()
         } else {
-            db.get_lang_stats().unwrap_or_default()
+            db.get_lang_stats_filtered(ep).unwrap_or_default()
         }
     }).await.unwrap_or_default();
     Json(stats).into_response()
@@ -443,6 +464,7 @@ pub async fn cache_hit_logs(State(state): State<AppState>) -> impl IntoResponse 
 pub struct HeatmapQuery {
     pub view: Option<String>,
     pub days: Option<u32>,
+    pub endpoint: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -457,14 +479,16 @@ pub async fn heatmap(
 ) -> impl IntoResponse {
     let view = query.view.unwrap_or_else(|| "weekday".to_string());
     let days = query.days.unwrap_or(30);
+    let endpoint_filter = query.endpoint.unwrap_or_default();
     let db = state.db.clone();
     let view_clone = view.clone();
 
     let data = tokio::task::spawn_blocking(move || {
+        let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
         if view_clone == "date" {
-            db.get_heatmap_by_date(days).unwrap_or_default()
+            db.get_heatmap_by_date_filtered(days, ep).unwrap_or_default()
         } else {
-            db.get_heatmap_by_weekday(days).unwrap_or_default()
+            db.get_heatmap_by_weekday_filtered(days, ep).unwrap_or_default()
         }
     }).await.unwrap_or_default();
 
@@ -475,6 +499,7 @@ pub async fn heatmap(
 pub struct ErrorTrendQuery {
     pub days: Option<u32>,
     pub granularity: Option<String>,
+    pub endpoint: Option<String>,
 }
 
 pub async fn error_trend(
@@ -485,13 +510,15 @@ pub async fn error_trend(
     let granularity = query.granularity.unwrap_or_else(|| {
         if days <= 2 { "hourly".to_string() } else { "daily".to_string() }
     });
+    let endpoint_filter = query.endpoint.unwrap_or_default();
     let db = state.db.clone();
 
     let data = tokio::task::spawn_blocking(move || {
+        let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
         if granularity == "hourly" {
-            db.get_error_trend_hourly(days).unwrap_or_default()
+            db.get_error_trend_hourly_filtered(days, ep).unwrap_or_default()
         } else {
-            db.get_error_trend_daily(days).unwrap_or_default()
+            db.get_error_trend_daily_filtered(days, ep).unwrap_or_default()
         }
     }).await.unwrap_or_default();
 
