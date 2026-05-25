@@ -1,0 +1,20 @@
+.shell {
+  min-height: calc(100vh - 80px);
+  padding: 24px 16px 48px;
+  position: relative;
+
+  &::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, var(--bg-hover) 0%, transparent 60%);
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: -1;
+  }
+}
+
+.content {
+  max-width: 1245px;
+  margin: 0 auto;
+}

@@ -1,0 +1,74 @@
+.topbar {
+  position: sticky;
+  top: 12px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 24px;
+  margin: 12px auto 0;
+  max-width: 1245px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-topbar);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+
+  @media (max-width: 768px) {
+    flex-wrap: wrap;
+    gap: 12px;
+    border-radius: var(--radius-md);
+    top: 0;
+    margin-top: 0;
+  }
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brandText {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+
+  @media (max-width: 768px) {
+    width: 100%;
+    order: 3;
+    overflow-x: auto;
+  }
+}
+
+.tab {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 150ms ease;
+
+  &:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+}
+
+.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
