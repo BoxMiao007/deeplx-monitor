@@ -1,0 +1,49 @@
+.page { display: flex; flex-direction: column; gap: 20px; }
+
+.sectionHeader {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+  h3 { font-size: 15px; font-weight: 600; }
+}
+
+.sectionTitle { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+
+.hint { font-size: 12px; font-weight: 400; color: var(--color-warning); }
+
+.epList { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+
+.epRow {
+  display: grid; grid-template-columns: 1fr 2fr 1.5fr auto;
+  gap: 10px; align-items: flex-end;
+  padding: 12px; background: var(--bg-secondary); border-radius: var(--radius-sm);
+  @media (max-width: 768px) { grid-template-columns: 1fr; }
+}
+
+.fieldRow {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  > * { flex: 1; min-width: 140px; }
+}
+
+.checkbox {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; cursor: pointer;
+  input { width: 16px; height: 16px; }
+}
+
+.saveBar {
+  position: sticky; bottom: 16px;
+  display: flex; justify-content: flex-end; padding: 12px 0;
+}
+
+.toast {
+  position: fixed; top: 80px; right: 16px;
+  padding: 10px 20px;
+  background: var(--color-success-bg); color: var(--color-success);
+  border-radius: var(--radius-sm);
+  font-size: 14px; font-weight: 500; z-index: 1000;
+  animation: slideIn 200ms ease;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
