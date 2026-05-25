@@ -1,0 +1,64 @@
+.page { display: flex; flex-direction: column; gap: 20px; }
+
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  h3 { font-size: 16px; font-weight: 600; }
+}
+
+.epGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.epCard { padding: 20px; }
+
+.epHeader { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+
+.badge {
+  padding: 2px 8px; border-radius: 12px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+}
+.online { background: var(--color-success-bg); color: var(--color-success); }
+.offline { background: var(--color-error-bg); color: var(--color-error); }
+
+.epName { font-size: 15px; font-weight: 600; }
+.epUrl { font-size: 12px; color: var(--text-tertiary); margin-bottom: 12px; word-break: break-all; }
+
+.epStats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.epStat { text-align: center; }
+.epStatLabel { display: block; font-size: 11px; color: var(--text-tertiary); margin-bottom: 2px; }
+.epStatValue { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.epError {
+  margin-top: 10px; padding: 8px 10px;
+  background: var(--color-error-bg); border-radius: var(--radius-sm);
+  font-size: 12px; color: var(--color-error);
+}
+
+.cacheSection { margin-top: 8px; display: flex; flex-direction: column; gap: 16px; }
+.cacheCard { padding: 20px; }
+
+.cacheGrid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  @media (max-width: 768px) { grid-template-columns: repeat(2, 1fr); }
+}
+
+.cacheStat { text-align: center; }
+.cacheLabel { display: block; font-size: 12px; color: var(--text-tertiary); margin-bottom: 4px; }
+.cacheValue { font-size: 16px; font-weight: 700; }
+.successText { color: var(--color-success); }
+.errorText { color: var(--color-error); }
+
+.subTitle { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.hitList { display: flex; flex-direction: column; gap: 6px; }
+
+.hitItem {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  background: var(--bg-secondary); font-size: 13px;
+}
+
+.hitLang { font-weight: 500; min-width: 70px; }
+.hitText { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hitTime { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
