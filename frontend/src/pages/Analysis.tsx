@@ -54,6 +54,18 @@ export function Analysis() {
     value: ep.total_requests,
   }))
 
+  const latencyDonutData = endpoints.map(ep => ({
+    label: ep.name,
+    value: Math.round(ep.avg_latency_ms),
+  }))
+
+  const sourceLangDonutData = langStats
+    .filter(ls => ls.source_chars > 0)
+    .map(ls => ({
+      label: ls.lang || 'auto',
+      value: ls.source_chars,
+    }))
+
   return (
     <div className={styles.page}>
       {endpoints.length > 1 && (
@@ -72,6 +84,26 @@ export function Analysis() {
           </div>
         </div>
       )}
+
+      <div className={styles.statsGrid}>
+        {endpoints.length > 1 && (
+          <div className={styles.statCardLarge}>
+            <DonutChart
+              title={t('analysis.latencyShare')}
+              data={latencyDonutData}
+              unit="ms"
+            />
+          </div>
+        )}
+        {sourceLangDonutData.length > 0 && (
+          <div className={styles.statCardLarge}>
+            <DonutChart
+              title={t('analysis.sourceLangShare')}
+              data={sourceLangDonutData}
+            />
+          </div>
+        )}
+      </div>
 
       <Card>
         <div className={styles.cardHeader}>

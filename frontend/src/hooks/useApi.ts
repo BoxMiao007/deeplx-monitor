@@ -6,6 +6,10 @@ export function setToastHandler(fn: ToastFn) {
   globalToast = fn
 }
 
+export function showToast(msg: string) {
+  globalToast(msg)
+}
+
 export async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options)
   if (!res.ok) {

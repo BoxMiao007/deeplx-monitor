@@ -247,10 +247,6 @@ impl Database {
             .or(Ok((0, 0)))
     }
 
-    pub fn get_period_stats(&self, days: u32) -> SqliteResult<(i64, i64)> {
-        self.get_period_stats_filtered(days, None)
-    }
-
     pub fn get_period_stats_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<(i64, i64)> {
         let conn = self.conn.lock().unwrap();
         let ep_filter = endpoint.unwrap_or("");
@@ -267,14 +263,6 @@ impl Database {
             )?;
             stmt.query_row(params![days, ep_filter], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
         }
-    }
-
-    pub fn get_requests(
-        &self,
-        page: u32,
-        page_size: u32,
-    ) -> SqliteResult<(Vec<RequestLog>, i64)> {
-        self.get_requests_filtered(page, page_size, None)
     }
 
     pub fn get_requests_filtered(
@@ -525,10 +513,6 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_hourly_stats(&self, hours: u32) -> SqliteResult<Vec<HourlyStat>> {
-        self.get_hourly_stats_filtered(hours, None)
-    }
-
     pub fn get_hourly_stats_filtered(&self, hours: u32, endpoint: Option<&str>) -> SqliteResult<Vec<HourlyStat>> {
         let conn = self.conn.lock().unwrap();
         let ep_filter = endpoint.unwrap_or("");
@@ -567,10 +551,6 @@ impl Database {
         }
     }
 
-    pub fn get_lang_stats(&self) -> SqliteResult<Vec<LangStat>> {
-        self.get_lang_stats_filtered(None)
-    }
-
     pub fn get_lang_stats_filtered(&self, endpoint: Option<&str>) -> SqliteResult<Vec<LangStat>> {
         let conn = self.conn.lock().unwrap();
         let ep_filter = endpoint.unwrap_or("");
@@ -607,10 +587,6 @@ impl Database {
             })?;
             rows.collect()
         }
-    }
-
-    pub fn get_lang_stats_by_days(&self, days: u32) -> SqliteResult<Vec<LangStat>> {
-        self.get_lang_stats_by_days_filtered(days, None)
     }
 
     pub fn get_lang_stats_by_days_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<LangStat>> {
@@ -729,10 +705,6 @@ impl Database {
         rows.collect()
     }
 
-    pub fn get_daily_stats(&self, days: u32) -> SqliteResult<Vec<DailyStat>> {
-        self.get_daily_stats_filtered(days, None)
-    }
-
     pub fn get_daily_stats_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<DailyStat>> {
         let conn = self.conn.lock().unwrap();
         let ep_filter = endpoint.unwrap_or("");
@@ -769,10 +741,6 @@ impl Database {
             })?;
             rows.collect()
         }
-    }
-
-    pub fn get_heatmap_by_weekday(&self, days: u32) -> SqliteResult<Vec<HeatmapCell>> {
-        self.get_heatmap_by_weekday_filtered(days, None)
     }
 
     pub fn get_heatmap_by_weekday_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<HeatmapCell>> {
@@ -817,10 +785,6 @@ impl Database {
         }
     }
 
-    pub fn get_heatmap_by_date(&self, days: u32) -> SqliteResult<Vec<HeatmapCell>> {
-        self.get_heatmap_by_date_filtered(days, None)
-    }
-
     pub fn get_heatmap_by_date_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<HeatmapCell>> {
         let conn = self.conn.lock().unwrap();
         let ep_filter = endpoint.unwrap_or("");
@@ -853,10 +817,6 @@ impl Database {
             })?;
             rows.collect()
         }
-    }
-
-    pub fn get_error_trend_hourly(&self, days: u32) -> SqliteResult<Vec<ErrorTrendPoint>> {
-        self.get_error_trend_hourly_filtered(days, None)
     }
 
     pub fn get_error_trend_hourly_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<ErrorTrendPoint>> {
@@ -893,10 +853,6 @@ impl Database {
             let rows = stmt.query_map(params![days, ep_filter], map_row)?;
             rows.collect()
         }
-    }
-
-    pub fn get_error_trend_daily(&self, days: u32) -> SqliteResult<Vec<ErrorTrendPoint>> {
-        self.get_error_trend_daily_filtered(days, None)
     }
 
     pub fn get_error_trend_daily_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<Vec<ErrorTrendPoint>> {
@@ -1165,7 +1121,7 @@ mod tests {
         db.log_translation("EN", "ZH", 100, 80, "success", None, "", None).unwrap();
         db.log_translation("EN", "ZH", 200, 160, "error", Some("timeout"), "", None).unwrap();
 
-        let (count, chars) = db.get_period_stats(1).unwrap();
+        let (count, chars) = db.get_period_stats_filtered(1, None).unwrap();
         assert_eq!(count, 2);
         assert_eq!(chars, 300);
     }
@@ -1177,14 +1133,14 @@ mod tests {
             db.log_translation("EN", "ZH", i + 1, 0, "success", None, "", None).unwrap();
         }
 
-        let (items, total) = db.get_requests(1, 5).unwrap();
+        let (items, total) = db.get_requests_filtered(1, 5, None).unwrap();
         assert_eq!(total, 10);
         assert_eq!(items.len(), 5);
         // 按 id DESC 排序，第一页应该是最新的
         assert_eq!(items[0].id, 10);
         assert_eq!(items[4].id, 6);
 
-        let (items, _) = db.get_requests(2, 5).unwrap();
+        let (items, _) = db.get_requests_filtered(2, 5, None).unwrap();
         assert_eq!(items.len(), 5);
         assert_eq!(items[0].id, 5);
     }
@@ -1194,7 +1150,7 @@ mod tests {
         let db = temp_db();
         db.log_translation("EN", "ZH", 50, 0, "error", Some("upstream timeout"), "", None).unwrap();
 
-        let (items, _) = db.get_requests(1, 50).unwrap();
+        let (items, _) = db.get_requests_filtered(1, 50, None).unwrap();
         assert_eq!(items[0].status, "error");
         assert_eq!(items[0].error_msg.as_deref(), Some("upstream timeout"));
     }
@@ -1326,7 +1282,7 @@ mod tests {
     fn test_heatmap_by_weekday() {
         let db = temp_db();
         db.log_translation("EN", "ZH", 100, 80, "success", None, "", None).unwrap();
-        let data = db.get_heatmap_by_weekday(30).unwrap();
+        let data = db.get_heatmap_by_weekday_filtered(30, None).unwrap();
         assert!(!data.is_empty());
         let weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
         assert!(weekday_names.contains(&data[0].x.as_str()));
@@ -1458,12 +1414,12 @@ mod tests {
         assert!(chars > 0, "旧数据库 anchor 应有字符数, got {}", chars);
 
         // 验证 SUM(source_chars) 查询正常工作
-        let (period_req, period_chars) = db.get_period_stats(365).unwrap();
+        let (period_req, period_chars) = db.get_period_stats_filtered(365, None).unwrap();
         assert!(period_req > 0, "365天内应有请求");
         assert!(period_chars > 0, "365天内应有字符");
 
         // 验证分页查询
-        let (items, total) = db.get_requests(1, 10).unwrap();
+        let (items, total) = db.get_requests_filtered(1, 10, None).unwrap();
         assert!(total > 0);
         assert!(!items.is_empty());
         // 验证 source_chars 字段是正确的整数
@@ -1472,14 +1428,14 @@ mod tests {
         }
 
         // 验证图表查询
-        let daily = db.get_daily_stats(365).unwrap();
+        let daily = db.get_daily_stats_filtered(365, None).unwrap();
         assert!(!daily.is_empty(), "应有每日统计");
         for d in &daily {
             assert!(d.chars > 0, "每日字符数应 > 0");
         }
 
         // 验证热力图
-        let heatmap = db.get_heatmap_by_weekday(365).unwrap();
+        let heatmap = db.get_heatmap_by_weekday_filtered(365, None).unwrap();
         assert!(!heatmap.is_empty());
 
         std::mem::forget(dir);

@@ -21,9 +21,10 @@ interface DonutItem {
 interface DonutChartProps {
   title: string
   data: DonutItem[]
+  unit?: string
 }
 
-export function DonutChart({ title, data }: DonutChartProps) {
+export function DonutChart({ title, data, unit }: DonutChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<Chart | null>(null)
   const { theme } = useThemeStore()
@@ -89,7 +90,8 @@ export function DonutChart({ title, data }: DonutChartProps) {
             callbacks: {
               label: (item) => {
                 const pct = total > 0 ? ((item.raw as number) / total * 100).toFixed(1) : '0'
-                return `${item.label}: ${(item.raw as number).toLocaleString()} (${pct}%)`
+                const suffix = unit ? ` ${unit}` : ''
+                return `${item.label}: ${(item.raw as number).toLocaleString()}${suffix} (${pct}%)`
               },
             },
           },
@@ -98,7 +100,7 @@ export function DonutChart({ title, data }: DonutChartProps) {
     })
 
     return () => { chartRef.current?.destroy() }
-  }, [data, isDark, total])
+  }, [data, isDark, total, unit])
 
   return (
     <div className={styles.wrapper}>
@@ -114,7 +116,10 @@ export function DonutChart({ title, data }: DonutChartProps) {
                 <span className={styles.legendDot} style={{ backgroundColor: COLORS[i % COLORS.length].base }} />
                 <span className={styles.legendName}>{item.label}</span>
                 <span className={styles.legendPct}>
-                  {total > 0 ? ((item.value / total) * 100).toFixed(1) : '0'}%
+                  {unit
+                    ? `${item.value.toLocaleString()} ${unit}`
+                    : `${total > 0 ? ((item.value / total) * 100).toFixed(1) : '0'}%`
+                  }
                 </span>
               </div>
             ))}

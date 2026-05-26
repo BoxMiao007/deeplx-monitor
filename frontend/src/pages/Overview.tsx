@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useStatsStore } from '@/stores/useStatsStore'
 import { useEndpointStore } from '@/stores/useEndpointStore'
 import { useAutoRefresh } from '@/hooks/useAutoRefresh'
-import { apiFetch } from '@/hooks/useApi'
+import { apiFetch, showToast } from '@/hooks/useApi'
 import { Card } from '@/components/ui/Card/Card'
 import { Select } from '@/components/ui/Select/Select'
 import { Button } from '@/components/ui/Button/Button'
@@ -102,12 +102,15 @@ export function Overview() {
     fetchChartData(endpoints)
   }, [endpoints, fetchChartData])
 
-  const refresh = useCallback(() => {
-    fetchAll()
-    fetchUpstreamStatus()
-    fetchCacheStats()
-    fetchChartData(endpoints)
-  }, [fetchAll, fetchUpstreamStatus, fetchCacheStats, endpoints, fetchChartData])
+  const refresh = useCallback(async () => {
+    await Promise.all([
+      fetchAll(),
+      fetchUpstreamStatus(),
+      fetchCacheStats(),
+      fetchChartData(endpoints),
+    ])
+    showToast(t('overview.refreshDone'))
+  }, [fetchAll, fetchUpstreamStatus, fetchCacheStats, endpoints, fetchChartData, t])
 
   useAutoRefresh(refresh, refreshInterval)
 
@@ -148,6 +151,12 @@ export function Overview() {
     return `${secs} ${t('settings.ttlUnitSeconds')}`
   }
 
+  const formatBytes = (bytes: number) => {
+    if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${bytes} B`
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.controls}>
@@ -175,8 +184,9 @@ export function Overview() {
             { value: 60, label: `60${t('overview.seconds')}` },
           ]}
         />
-        <Button variant="ghost" size="sm" onClick={refresh} aria-label={t('overview.refresh')}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        <Button variant="secondary" className={styles.refreshBtn} onClick={refresh}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          {t('overview.refresh')}
         </Button>
       </div>
 
@@ -286,12 +296,16 @@ export function Overview() {
                 <span className={styles.cacheValue}>{(cacheStats.hit_rate * 100).toFixed(1)}%</span>
               </div>
               <div className={styles.cacheStat}>
+                <span className={styles.cacheLabel}>{t('endpoints.hitCount')}</span>
+                <span className={styles.cacheValue}>{cacheStats.hits.toLocaleString()}</span>
+              </div>
+              <div className={styles.cacheStat}>
                 <span className={styles.cacheLabel}>
                   {cacheStats.max_memory_mb > 0 ? t('settings.maxMemory') : t('endpoints.size')}
                 </span>
                 <span className={styles.cacheValue}>
                   {cacheStats.max_memory_mb > 0
-                    ? `${(cacheStats.estimated_memory_bytes / 1024 / 1024).toFixed(1)} / ${cacheStats.max_memory_mb} MB`
+                    ? `${formatBytes(cacheStats.estimated_memory_bytes)} / ${cacheStats.max_memory_mb} MB`
                     : `${cacheStats.size} / ${cacheStats.max_entries}`}
                 </span>
               </div>

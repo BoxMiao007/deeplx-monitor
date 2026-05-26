@@ -26,6 +26,7 @@
     "off": "关闭",
     "seconds": "秒",
     "refresh": "刷新",
+    "refreshDone": "刷新完成",
     "requestTrend": "请求趋势",
     "charTrend": "字符趋势"
   },
@@ -40,6 +41,8 @@
     "endpointCompare": "端点对比",
     "requestShare": "请求占比",
     "charShare": "字符占比",
+    "latencyShare": "平均延迟",
+    "sourceLangShare": "源语言占比",
     "endpoints": "个端点",
     "weekday": "按星期",
     "hourly": "按小时"
@@ -61,6 +64,7 @@
     "clearCache": "清除缓存",
     "size": "大小",
     "hitRate": "命中率",
+    "hitCount": "命中数量",
     "enabled": "已启用",
     "disabled": "已禁用",
     "cacheTtl": "有效期"

@@ -26,6 +26,7 @@
     "off": "Off",
     "seconds": "s",
     "refresh": "Refresh",
+    "refreshDone": "Refresh complete",
     "requestTrend": "Request Trend",
     "charTrend": "Character Trend"
   },
@@ -40,6 +41,8 @@
     "endpointCompare": "Endpoint Comparison",
     "requestShare": "Request Share",
     "charShare": "Character Share",
+    "latencyShare": "Avg Latency",
+    "sourceLangShare": "Source Language Share",
     "endpoints": "endpoints",
     "weekday": "By Weekday",
     "hourly": "By Hour"
@@ -61,6 +64,7 @@
     "clearCache": "Clear Cache",
     "size": "Size",
     "hitRate": "Hit Rate",
+    "hitCount": "Hit Count",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "cacheTtl": "TTL"
