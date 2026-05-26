@@ -102,17 +102,21 @@ export function Overview() {
     fetchChartData(endpoints)
   }, [endpoints, fetchChartData])
 
-  const refresh = useCallback(async () => {
+  const refreshData = useCallback(async () => {
     await Promise.all([
       fetchAll(),
       fetchUpstreamStatus(),
       fetchCacheStats(),
       fetchChartData(endpoints),
     ])
-    showToast(t('overview.refreshDone'))
-  }, [fetchAll, fetchUpstreamStatus, fetchCacheStats, endpoints, fetchChartData, t])
+  }, [fetchAll, fetchUpstreamStatus, fetchCacheStats, endpoints, fetchChartData])
 
-  useAutoRefresh(refresh, refreshInterval)
+  const refresh = useCallback(async () => {
+    await refreshData()
+    showToast(t('overview.refreshDone'))
+  }, [refreshData, t])
+
+  useAutoRefresh(refreshData, refreshInterval)
 
   const onDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const v = Number(e.target.value)

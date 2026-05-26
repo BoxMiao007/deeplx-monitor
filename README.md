@@ -90,7 +90,7 @@ npm run build
 cargo run
 ```
 
-服务默认监听 `127.0.0.1:55551`（可在 config.toml 中修改）。
+服务默认监听 `127.0.0.1:5555`（可在 config.toml 中修改）。
 
 ### 4. 开发模式
 
@@ -101,7 +101,7 @@ cd frontend
 npm run dev
 ```
 
-访问 `http://localhost:5173`，API 请求会代理到 `localhost:55551`。
+访问 `http://localhost:5173`，API 请求会代理到 `localhost:5555`。
 
 ## 配置说明
 

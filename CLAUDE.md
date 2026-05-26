@@ -143,10 +143,76 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
+## 版本号与发布规则
+
+### 版本号管理
+
+- 版本号同时存在于 `Cargo.toml` 和 `Cargo.lock` 两个文件，更新时必须同步修改。
+- 版本号规则（语义化）：
+  - 小修复（bug fix、样式调整）：每条 +0.0.1
+  - 大修复（重要 bug、性能优化）：每条 +0.0.5
+  - 添加功能（新特性、新页面）：+0.1.0
+  - 后两位满 10 进 1（如 2.0.9 + 0.0.1 = 2.0.10，2.0.10 + 0.0.1 = 2.0.11；2.9.0 + 0.1.0 = 2.10.0）
+- 仅代码修改时才更新版本号，纯文档更新不更新版本号。
+
+### 提交规则
+
+- 提交前必须运行 `npx gitnexus analyze` 更新知识图谱索引。
+- 提交后推送到远程。
+
+### 发布规则
+
+- 发布前完成上述提交规则。
+- 手动触发 Release 工作流：`gh workflow run release.yml`
+- 等待构建完成后更新 Release 说明，使用以下模板：
+
+```
+## 🚀 新特性
+
+- **功能名称** — 简要描述
+
+## 🐛 修复
+
+- **问题描述** — 修复内容
+
+## 📦 打包改进
+
+- 改进内容
+
+## 🔧 其他
+
+- 其他变更
+
+---
+
+## 🚀 What's New
+
+- **Feature name** — Brief description
+
+## 🐛 Fixes
+
+- **Issue description** — Fix details
+
+## 📦 Packaging
+
+- Improvement details
+
+## 🔧 Other
+
+- Other changes
+```
+
+### 端口说明
+
+- 项目默认端口为 `5555`（config.toml 中配置）。
+- `55551` 仅为本地开发测试端口，不应出现在文档或发布内容中。
+
+---
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **deeplx-monitor** (1132 symbols, 2036 relationships, 66 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **deeplx-monitor** (1147 symbols, 2054 relationships, 66 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
