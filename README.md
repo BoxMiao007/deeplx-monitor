@@ -2,7 +2,7 @@
 
 > 🤖 **重要提示：** 本项目 100% 由 AI 辅助生成，仅供学习、研究和技术交流之用。
 
-DeepLX 翻译代理与监控面板。作为客户端与 DeepLX API 之间的中间层，支持多上游负载均衡、翻译缓存、请求日志记录，并提供 Vue 3 可视化面板。
+DeepLX 翻译代理与监控面板。作为客户端与 DeepLX API 之间的中间层，支持多上游负载均衡、翻译缓存、请求日志记录，并提供 React 可视化面板。
 
 <p align="center">
   <img src=".github/assets/Preview.png" width="100%" />
@@ -11,10 +11,12 @@ DeepLX 翻译代理与监控面板。作为客户端与 DeepLX API 之间的中�
 ## 特性
 
 - 多上游端点负载均衡（round-robin + 故障转移）
-- 翻译结果缓存（LRU，可配置 TTL 和容量）
+- 翻译结果缓存（LRU，可配置 TTL、容量和内存限制）
 - 配置热加载（修改 config.toml 自动生效，无需重启）
 - 请求日志与统计（字符数、语言对、延迟、成功率）
-- 可视化面板（调用趋势、语言统计、错误率、活动热力图）
+- 可视化面板（5 个标签页：概览、分析、端点、日志、设置）
+- 图表分析（调用趋势、语言统计、错误率、活动热力图、圆环图）
+- 多语言支持（中文 / English）
 - 数据导出（CSV / JSON）
 - 演示模式（一键生成假数据用于 UI 验收）
 
@@ -34,17 +36,19 @@ src/
 
 frontend/
 ├── src/
-│   ├── pages/
-│   │   └── Dashboard.vue   # 监控面板（含设置抽屉）
-│   ├── stores/monitor.ts   # Pinia 状态管理
-│   └── App.vue             # 根组件
-└── vite.config.ts          # Vite 配置，含 API 代理
+│   ├── pages/          # 5 个标签页（Overview, Analysis, Endpoints, Logs, Settings）
+│   ├── components/     # UI 组件（charts, layout, shared, ui）
+│   ├── stores/         # Zustand 状态管理
+│   ├── hooks/          # 自定义 hooks（useApi, useAutoRefresh）
+│   ├── i18n/           # 国际化（中文 / English）
+│   └── main.tsx        # 入口
+└── vite.config.ts      # Vite 配置，含 API 代理
 ```
 
 ## 技术栈
 
 - **后端**: Rust (Axum + Tokio), SQLite (rusqlite), rust-embed, moka (缓存), notify (文件监听)
-- **前端**: Vue 3 + TypeScript + Vite, Pinia, Chart.js
+- **前端**: React 19 + TypeScript + Vite, Zustand, Chart.js + Recharts, SCSS Modules, react-i18next
 
 ## 快速开始
 
@@ -86,7 +90,7 @@ npm run build
 cargo run
 ```
 
-服务默认监听 `127.0.0.1:5555`（可在 config.toml 中修改）。
+服务默认监听 `127.0.0.1:55551`（可在 config.toml 中修改）。
 
 ### 4. 开发模式
 
@@ -97,7 +101,7 @@ cd frontend
 npm run dev
 ```
 
-访问 `http://localhost:5173`，API 请求会代理到 `localhost:5555`。
+访问 `http://localhost:5173`，API 请求会代理到 `localhost:55551`。
 
 ## 配置说明
 
