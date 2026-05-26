@@ -163,8 +163,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ### 发布规则
 
 - 发布前完成上述提交规则。
-- 手动触发 Release 工作流：`gh workflow run release.yml`
-- 等待构建完成后更新 Release 说明，使用以下模板：
+- 在 GitHub 创建 Release（tag 格式 `vX.Y.Z`），写好说明后发布。
+- 工作流会自动触发构建并上传产物到该 Release。
+- 创建命令：`gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`
+- Release 说明模板（没有内容的章节直接省略不写）：
 
 ```
 ## 🚀 新特性
