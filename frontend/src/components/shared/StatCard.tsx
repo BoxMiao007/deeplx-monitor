@@ -9,9 +9,9 @@ interface StatCardProps {
   chartColor?: string
 }
 
-export function StatCard({ label, value, subtitle, chartData, chartColor }: StatCardProps) {
+export function StatCard({ label, value, subtitle, chartData, chartColor = '#8b5cf6' }: StatCardProps) {
   return (
-    <article className={styles.card}>
+    <article className={styles.card} style={{ '--accent': chartColor } as React.CSSProperties}>
       <div className={styles.head}>
         <span className={styles.label}>{label}</span>
         {subtitle && <span className={styles.subtitle}>{subtitle}</span>}

@@ -6,14 +6,14 @@ import { PageShell } from '@/components/layout/PageShell'
 import { ToastContainer } from '@/components/shared/Toast'
 import { Overview } from '@/pages/Overview'
 import { Analysis } from '@/pages/Analysis'
-import { Endpoints } from '@/pages/Endpoints'
 import { Logs } from '@/pages/Logs'
 import { Settings } from '@/pages/Settings'
 import type { Tab } from '@/types'
 
 function getInitialTab(): Tab {
   const hash = window.location.hash.slice(1)
-  const valid: Tab[] = ['overview', 'analysis', 'endpoints', 'logs', 'settings']
+  const valid: Tab[] = ['overview', 'analysis', 'logs', 'settings']
+  if (hash === 'endpoints') return 'overview'
   return valid.includes(hash as Tab) ? (hash as Tab) : 'overview'
 }
 
@@ -38,7 +38,7 @@ function App() {
   useEffect(() => {
     const onHash = () => {
       const hash = window.location.hash.slice(1) as Tab
-      const valid: Tab[] = ['overview', 'analysis', 'endpoints', 'logs', 'settings']
+      const valid: Tab[] = ['overview', 'analysis', 'logs', 'settings']
       if (valid.includes(hash)) setActiveTab(hash)
     }
     window.addEventListener('hashchange', onHash)
@@ -49,7 +49,6 @@ function App() {
     switch (activeTab) {
       case 'overview': return <Overview />
       case 'analysis': return <Analysis />
-      case 'endpoints': return <Endpoints />
       case 'logs': return <Logs />
       case 'settings': return <Settings />
     }

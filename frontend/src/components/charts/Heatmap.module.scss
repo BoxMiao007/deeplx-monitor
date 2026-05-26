@@ -1,37 +1,113 @@
-.container {
-  overflow-x: auto;
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gridScroller {
+  width: 100%;
+  overflow: hidden;
 }
 
 .grid {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: fit-content;
-}
-
-.row {
   display: grid;
-  grid-template-columns: 40px repeat(24, 1fr);
-  gap: 2px;
+  width: 100%;
+  max-width: 100%;
+  gap: 3px;
+  grid-template-columns: repeat(96, minmax(0, 1fr));
+  grid-template-rows: repeat(7, minmax(0, 1fr));
+  grid-auto-flow: column;
+  aspect-ratio: 96 / 7;
 }
 
-.xLabel, .yLabel {
-  font-size: 11px;
-  color: var(--text-tertiary);
+.blockWrapper {
+  position: relative;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  width: 100%;
+  aspect-ratio: 1;
+  min-width: 0;
+}
+
+.block {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+
+  .blockWrapper:hover &,
+  .blockActive & {
+    transform: scaleY(1.6);
+    opacity: 0.85;
+  }
+}
+
+.blockIdle {
+  background-color: var(--border-color, #e5e7eb);
+}
+
+.legend {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 4px;
+  gap: 8px;
 }
 
-.yLabel {
-  justify-content: flex-end;
-  padding-right: 8px;
+.legendLabel {
+  font-size: 10px;
+  color: var(--text-tertiary);
 }
 
-.cell {
-  aspect-ratio: 1;
-  border-radius: 3px;
-  min-width: 16px;
-  min-height: 16px;
+.legendColors {
+  display: flex;
+  gap: 3px;
+}
+
+.legendBlock {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legendRamp {
+  width: 60px;
+  height: 10px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgb(250, 244, 230), rgb(214, 162, 76), rgb(198, 87, 70));
+}
+
+.tooltip {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  z-index: 9999;
+  pointer-events: none;
+  color: var(--text-primary);
+}
+
+.tooltipTime {
+  display: block;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.tooltipCount {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .gridScroller {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .grid {
+    min-width: 540px;
+  }
 }

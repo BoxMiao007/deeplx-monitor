@@ -46,7 +46,8 @@ async fn main() {
     let listen_addr = format!("{}:{}", config.proxy.host, config.proxy.port);
     let db = db::Database::new("deeplx-monitor.db").expect("Failed to open database");
     if config.demo.enabled {
-        db.replace_with_demo_data(config.demo.seed)
+        let ep_names: Vec<String> = config.upstream.endpoints.iter().map(|e| e.name.clone()).collect();
+        db.replace_with_demo_data(config.demo.seed, &ep_names)
             .expect("Failed to seed demo database");
         tracing::info!("Demo mode enabled, seeded synthetic dashboard data");
     }
@@ -166,6 +167,7 @@ async fn main() {
         .route("/api/cache/clear", post(api::clear_cache))
         .route("/api/cache/hits", get(api::cache_hit_logs))
         .route("/api/analytics/heatmap", get(api::heatmap))
+        .route("/api/analytics/timeline", get(api::timeline))
         .route("/api/analytics/error-trend", get(api::error_trend))
         .route("/api/version", get(api::version))
         .route("/api/export", get(api::export))

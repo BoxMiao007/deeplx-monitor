@@ -23,6 +23,22 @@
   > * { flex: 1; min-width: 140px; }
 }
 
+.ttlGroup {
+  display: flex; align-items: flex-end; gap: 8px; flex: 1; min-width: 140px;
+  > *:first-child { flex: 1; }
+}
+
+.ttlSelect {
+  height: 38px; padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  &:focus { outline: none; border-color: var(--color-primary); }
+}
+
 .checkbox {
   display: flex; align-items: center; gap: 8px;
   font-size: 14px; cursor: pointer;

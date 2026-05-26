@@ -1,64 +1,91 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStatsStore } from '@/stores/useStatsStore'
 import { useEndpointStore } from '@/stores/useEndpointStore'
+import { apiFetch } from '@/hooks/useApi'
 import { Card } from '@/components/ui/Card/Card'
 import { Select } from '@/components/ui/Select/Select'
 import { Heatmap } from '@/components/charts/Heatmap'
 import { ErrorTrend } from '@/components/charts/ErrorTrend'
-import { TrendChart } from '@/components/charts/TrendChart'
+import { DonutChart } from '@/components/charts/DonutChart'
 import { EmptyState } from '@/components/ui/EmptyState/EmptyState'
+import { LangFlag } from '@/components/shared/LangFlag'
+import type { StatsResponse } from '@/types'
 import styles from './Analysis.module.scss'
-
-const HOURS = Array.from({ length: 24 }, (_, i) => String(i))
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export function Analysis() {
   const { t } = useTranslation()
   const {
-    heatmapData, errorTrend, langStats, days,
-    fetchHeatmap, fetchErrorTrend, fetchLangStats,
+    errorTrend, langStats, days,
+    fetchErrorTrend, fetchLangStats,
   } = useStatsStore()
   const { endpoints, fetchUpstreamStatus } = useEndpointStore()
+  const [epChars, setEpChars] = useState<{ label: string; value: number }[]>([])
+  const [heatmapDays, setHeatmapDays] = useState(1)
 
   useEffect(() => {
-    fetchHeatmap('weekday', 30)
     fetchErrorTrend(7)
     fetchLangStats(days)
     fetchUpstreamStatus()
-  }, [fetchHeatmap, fetchErrorTrend, fetchLangStats, fetchUpstreamStatus, days])
+  }, [fetchErrorTrend, fetchLangStats, fetchUpstreamStatus, days])
 
-  const onHeatmapViewChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    fetchHeatmap(e.target.value, 30)
+  useEffect(() => {
+    if (endpoints.length < 2) return
+    Promise.all(
+      endpoints.map(ep => apiFetch<StatsResponse>(`/api/stats?endpoint=${encodeURIComponent(ep.name)}`))
+    ).then(results => {
+      setEpChars(endpoints.map((ep, i) => ({
+        label: ep.name,
+        value: results[i]?.total_chars ?? 0,
+      })))
+    }).catch(() => {})
+  }, [endpoints])
+
+  const onHeatmapDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setHeatmapDays(Number(e.target.value))
   }
 
   const onErrorDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     fetchErrorTrend(Number(e.target.value))
   }
 
+  const requestDonutData = endpoints.map(ep => ({
+    label: ep.name,
+    value: ep.total_requests,
+  }))
+
   return (
     <div className={styles.page}>
+      {endpoints.length > 1 && (
+        <div className={styles.statsGrid}>
+          <div className={styles.statCardLarge}>
+            <DonutChart
+              title={t('analysis.requestShare')}
+              data={requestDonutData}
+            />
+          </div>
+          <div className={styles.statCardLarge}>
+            <DonutChart
+              title={t('analysis.charShare')}
+              data={epChars.length > 0 ? epChars : requestDonutData}
+            />
+          </div>
+        </div>
+      )}
+
       <Card>
         <div className={styles.cardHeader}>
           <h3>{t('analysis.heatmap')}</h3>
           <Select
-            value={heatmapData?.view ?? 'weekday'}
-            onChange={onHeatmapViewChange}
+            value={heatmapDays}
+            onChange={onHeatmapDaysChange}
             options={[
-              { value: 'weekday', label: t('analysis.weekday') },
-              { value: 'hourly', label: t('analysis.hourly') },
+              { value: 1, label: t('overview.today') },
+              { value: 7, label: t('overview.days7') },
             ]}
           />
         </div>
-        {heatmapData && heatmapData.data.length > 0 ? (
-          <Heatmap
-            data={heatmapData.data}
-            xLabels={HOURS}
-            yLabels={heatmapData.view === 'weekday' ? WEEKDAYS : HOURS}
-          />
-        ) : (
-          <EmptyState />
-        )}
+        <Heatmap days={heatmapDays} />
       </Card>
 
       <Card>
@@ -75,10 +102,7 @@ export function Analysis() {
           />
         </div>
         {errorTrend.length > 0 ? (
-          <ErrorTrend
-            labels={errorTrend.map((p) => p.time)}
-            errorRates={errorTrend.map((p) => p.error_rate * 100)}
-          />
+          <ErrorTrend data={errorTrend} />
         ) : (
           <EmptyState />
         )}
@@ -87,34 +111,46 @@ export function Analysis() {
       <Card>
         <h3 className={styles.cardTitle}>{t('analysis.langStats')}</h3>
         {langStats.length > 0 ? (
-          <div className={styles.langGrid}>
-            {langStats.map((ls) => (
-              <div key={ls.lang} className={styles.langItem}>
-                <span className={styles.langName}>{ls.lang || 'auto'}</span>
-                <div className={styles.langBar}>
-                  <div className={styles.langBarFill} style={{ width: `${Math.min((ls.source_chars + ls.target_chars) / Math.max(...langStats.map(l => l.source_chars + l.target_chars)) * 100, 100)}%` }} />
+          <div className={styles.langTable}>
+            <div className={styles.langTableHead}>
+              <span className={styles.langColName}>{t('analysis.language')}</span>
+              <span className={styles.langColVal}>{t('analysis.sourceLang')}</span>
+              <span className={styles.langColVal}>{t('analysis.targetLang')}</span>
+              <span className={styles.langColVal}>{t('analysis.totalChars')}</span>
+            </div>
+            {langStats.map((ls) => {
+              const total = ls.source_chars + ls.target_chars
+              const maxTotal = Math.max(...langStats.map(l => l.source_chars + l.target_chars))
+              const maxSource = Math.max(...langStats.map(l => l.source_chars))
+              const maxTarget = Math.max(...langStats.map(l => l.target_chars))
+              return (
+                <div key={ls.lang} className={styles.langTableRow}>
+                  <span className={styles.langColName}>
+                    <LangFlag lang={ls.lang} size={16} />
+                    {ls.lang || 'auto'}
+                  </span>
+                  <span className={styles.langColVal}>
+                    <span className={styles.langBarWrap}>
+                      <span className={styles.langBarFill} style={{ width: `${maxSource > 0 ? Math.min(ls.source_chars / maxSource * 100, 100) : 0}%` }} />
+                    </span>
+                    {ls.source_chars.toLocaleString()}
+                  </span>
+                  <span className={styles.langColVal}>
+                    <span className={styles.langBarWrap}>
+                      <span className={styles.langBarFill} style={{ width: `${maxTarget > 0 ? Math.min(ls.target_chars / maxTarget * 100, 100) : 0}%` }} />
+                    </span>
+                    {ls.target_chars.toLocaleString()}
+                  </span>
+                  <span className={styles.langColVal}>
+                    <span className={styles.langBarWrap}>
+                      <span className={styles.langBarFill} style={{ width: `${Math.min(total / maxTotal * 100, 100)}%` }} />
+                    </span>
+                    {total.toLocaleString()}
+                  </span>
                 </div>
-                <span className={styles.langCount}>{(ls.source_chars + ls.target_chars).toLocaleString()}</span>
-              </div>
-            ))}
+              )
+            })}
           </div>
-        ) : (
-          <EmptyState />
-        )}
-      </Card>
-
-      <Card>
-        <h3 className={styles.cardTitle}>{t('analysis.endpointCompare')}</h3>
-        {endpoints.length > 1 ? (
-          <TrendChart
-            labels={endpoints.map((ep) => ep.name)}
-            datasets={[{
-              label: t('endpoints.latency'),
-              data: endpoints.map((ep) => ep.avg_latency_ms),
-              borderColor: 'var(--color-primary)',
-            }]}
-            height={200}
-          />
         ) : (
           <EmptyState />
         )}

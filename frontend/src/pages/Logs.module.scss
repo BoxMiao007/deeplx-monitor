@@ -9,7 +9,16 @@
 
 .loadingWrap { display: flex; justify-content: center; padding: 48px; }
 
-.tableWrap { overflow-x: auto; }
+.tableWrap {
+  overflow: auto;
+  max-height: 65vh;
+
+  table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+}
 
 .table {
   width: 100%; border-collapse: collapse; font-size: 13px;
@@ -17,6 +26,7 @@
   th, td {
     padding: 10px 12px; text-align: left;
     border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
   }
 
   th {
@@ -48,4 +58,12 @@
 .pageInfo {
   font-size: 13px; color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+}
+
+.langCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  svg { flex-shrink: 0; display: block; }
 }

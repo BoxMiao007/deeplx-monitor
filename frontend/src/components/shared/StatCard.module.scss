@@ -1,9 +1,33 @@
 .card {
-  background: var(--bg-primary);
+  position: relative;
+  background:
+    radial-gradient(120% 140% at 12% 0%, color-mix(in srgb, var(--accent, #8b5cf6) 18%, transparent) 0%, transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent),
+    var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   padding: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent, #8b5cf6), transparent);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .head {
@@ -28,10 +52,10 @@
   font-size: 24px;
   font-weight: 800;
   color: var(--text-primary);
-  margin-bottom: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .chart {
-  margin-top: 8px;
+  margin-top: auto;
+  padding-top: 12px;
 }

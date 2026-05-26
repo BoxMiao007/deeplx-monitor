@@ -114,6 +114,7 @@ pub struct ChartResponse {
 #[derive(Debug, Deserialize)]
 pub struct ChartQuery {
     pub endpoint: Option<String>,
+    pub days: Option<u32>,
 }
 
 pub async fn chart(
@@ -122,10 +123,11 @@ pub async fn chart(
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let endpoint_filter = query.endpoint.unwrap_or_default();
+    let days = query.days.unwrap_or(30);
     let (hourly, daily) = tokio::task::spawn_blocking(move || {
         let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
         let h = db.get_hourly_stats_filtered(24, ep).unwrap_or_default();
-        let d = db.get_daily_stats_filtered(30, ep).unwrap_or_default();
+        let d = db.get_daily_stats_filtered(days, ep).unwrap_or_default();
         (h, d)
     }).await.unwrap_or_default();
     Json(ChartResponse { hourly, daily }).into_response()
@@ -493,6 +495,25 @@ pub async fn heatmap(
     }).await.unwrap_or_default();
 
     Json(HeatmapResponse { view, data }).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TimelineQuery {
+    pub days: Option<u32>,
+}
+
+pub async fn timeline(
+    State(state): State<AppState>,
+    Query(query): Query<TimelineQuery>,
+) -> impl IntoResponse {
+    let days = query.days.unwrap_or(7);
+    let db = state.db.clone();
+
+    let blocks = tokio::task::spawn_blocking(move || {
+        db.get_timeline_data(days).unwrap_or_default()
+    }).await.unwrap_or_default();
+
+    Json(blocks).into_response()
 }
 
 #[derive(Debug, Deserialize)]

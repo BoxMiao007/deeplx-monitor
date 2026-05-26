@@ -53,12 +53,16 @@ export interface HourlyStat {
   hour: string
   count: number
   chars: number
+  successes: number
+  avg_latency_ms: number
 }
 
 export interface DailyStat {
   day: string
   count: number
   chars: number
+  successes: number
+  avg_latency_ms: number
 }
 
 export interface ChartData {
@@ -177,4 +181,4 @@ export interface ErrorTrendPoint {
   error_rate: number
 }
 
-export type Tab = 'overview' | 'analysis' | 'endpoints' | 'logs' | 'settings'
+export type Tab = 'overview' | 'analysis' | 'logs' | 'settings'

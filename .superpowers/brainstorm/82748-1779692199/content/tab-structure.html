@@ -1,0 +1,49 @@
+<h2>Tab 导航结构方案</h2>
+<p class="subtitle">如何将 deeplx-monitor 的功能组织到 Tab 中？</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>5 Tab — 对齐 cpa-usage-keeper</h3>
+      <p>最接近参考项目的结构</p>
+      <ul style="margin-top:8px;font-size:14px;color:#6d6760;line-height:1.8">
+        <li><strong>概览</strong> — 统计卡片 + 迷你图 + 主趋势图</li>
+        <li><strong>分析</strong> — 热力图、错误趋势、语言统计、端点对比</li>
+        <li><strong>日志</strong> — 请求日志表格（筛选、分页）</li>
+        <li><strong>端点</strong> — 上游端点列表、健康状态、详情、缓存统计</li>
+        <li><strong>设置</strong> — 配置管理（上游 CRUD、代理/监控/缓存参数）</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>4 Tab — 精简合并</h3>
+      <p>将分析和日志合并，减少导航层级</p>
+      <ul style="margin-top:8px;font-size:14px;color:#6d6760;line-height:1.8">
+        <li><strong>概览</strong> — 统计卡片 + 迷你图 + 主趋势图 + 端点健康摘要</li>
+        <li><strong>分析</strong> — 热力图、错误趋势、语言统计、请求日志（子 Tab）</li>
+        <li><strong>端点</strong> — 端点列表、详情、对比、缓存管理</li>
+        <li><strong>设置</strong> — 全部配置项</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>6 Tab — 功能完全展开</h3>
+      <p>每个功能域独立 Tab，导航最清晰</p>
+      <ul style="margin-top:8px;font-size:14px;color:#6d6760;line-height:1.8">
+        <li><strong>概览</strong> — 统计卡片 + 迷你图 + 主趋势图</li>
+        <li><strong>端点</strong> — 上游列表、健康状态、详情</li>
+        <li><strong>分析</strong> — 热力图、错误趋势、语言统计、端点对比</li>
+        <li><strong>日志</strong> — 请求日志表格</li>
+        <li><strong>缓存</strong> — 缓存统计、命中日志、清除操作</li>
+        <li><strong>设置</strong> — 全部配置项</li>
+      </ul>
+    </div>
+  </div>
+</div>

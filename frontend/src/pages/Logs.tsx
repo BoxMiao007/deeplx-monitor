@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLogsStore } from '@/stores/useLogsStore'
 import { useEndpointStore } from '@/stores/useEndpointStore'
+import { LangFlag } from '@/components/shared/LangFlag'
 import { Card } from '@/components/ui/Card/Card'
 import { Select } from '@/components/ui/Select/Select'
 import { Button } from '@/components/ui/Button/Button'
@@ -76,8 +77,8 @@ export function Logs() {
                 {logs.map((log) => (
                   <tr key={log.id}>
                     <td className={styles.mono}>{log.created_at}</td>
-                    <td>{log.source_lang || 'auto'}</td>
-                    <td>{log.target_lang}</td>
+                    <td><span className={styles.langCell}><LangFlag lang={log.source_lang || 'auto'} size={14} /> {log.source_lang || 'auto'}</span></td>
+                    <td><span className={styles.langCell}><LangFlag lang={log.target_lang} size={14} /> {log.target_lang}</span></td>
                     <td>{log.endpoint_name ?? '-'}</td>
                     <td className={styles.mono}>{log.latency_ms != null ? `${log.latency_ms}ms` : '-'}</td>
                     <td>

@@ -1,4 +1,68 @@
-.wrapper {
+.chartWrapper {
+  padding: 14px;
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chartHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chartTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chartLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.legendLine {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legendLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.chartArea {
   position: relative;
   width: 100%;
 }

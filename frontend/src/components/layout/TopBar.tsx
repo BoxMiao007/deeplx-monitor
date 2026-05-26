@@ -9,7 +9,7 @@ interface TopBarProps {
   onTabChange: (tab: Tab) => void
 }
 
-const TABS: Tab[] = ['overview', 'analysis', 'endpoints', 'logs', 'settings']
+const TABS: Tab[] = ['overview', 'analysis', 'logs', 'settings']
 
 export function TopBar({ activeTab, onTabChange }: TopBarProps) {
   const { t } = useTranslation()

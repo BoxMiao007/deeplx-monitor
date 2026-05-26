@@ -61,6 +61,9 @@ impl Database {
             if !cols.iter().any(|c| c == "endpoint_name") {
                 conn.execute("ALTER TABLE translation_logs ADD COLUMN endpoint_name TEXT NOT NULL DEFAULT ''", [])?;
             }
+            if !cols.iter().any(|c| c == "latency_ms") {
+                conn.execute("ALTER TABLE translation_logs ADD COLUMN latency_ms INTEGER", [])?;
+            }
         }
 
         // 迁移：修复 ALTER TABLE DEFAULT chars 产生的文本值（SQLite 将其视为字面量 "chars"）
@@ -173,12 +176,13 @@ impl Database {
         status: &str,
         error_msg: Option<&str>,
         endpoint_name: &str,
+        latency_ms: Option<u64>,
     ) -> SqliteResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, endpoint_name)
-             VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7)",
-            params![source_chars, source_lang, target_lang, target_chars, status, error_msg, endpoint_name],
+            "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, endpoint_name, latency_ms)
+             VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7, ?8)",
+            params![source_chars, source_lang, target_lang, target_chars, status, error_msg, endpoint_name, latency_ms],
         )?;
         // 更新全局行
         conn.execute(
@@ -331,7 +335,7 @@ impl Database {
         Ok(to_delete)
     }
 
-    pub fn replace_with_demo_data(&self, seed: u64) -> SqliteResult<()> {
+    pub fn replace_with_demo_data(&self, seed: u64, endpoint_names: &[String]) -> SqliteResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM translation_logs", [])?;
         conn.execute("DELETE FROM sqlite_sequence WHERE name = 'translation_logs'", [])?;
@@ -340,71 +344,155 @@ impl Database {
             [],
         )?;
 
-        let lang_pairs = [
-            ("EN", "ZH"), ("JA", "ZH"), ("ZH", "EN"), ("KO", "ZH"),
-            ("FR", "EN"), ("DE", "ZH"), ("ES", "EN"), ("RU", "ZH"),
-            ("PT", "EN"), ("IT", "ZH"), ("TR", "EN"), ("AR", "ZH"),
+        // 语言对及其典型字符数范围 (source_min, source_max, target_ratio)
+        let lang_profiles: &[(&str, &str, i64, i64, f64)] = &[
+            ("EN", "ZH", 60, 800, 0.45),   // 英译中：中文更短
+            ("ZH", "EN", 30, 400, 2.2),     // 中译英：英文更长
+            ("JA", "ZH", 40, 500, 0.85),    // 日译中：长度相近
+            ("KO", "ZH", 35, 450, 0.9),     // 韩译中
+            ("FR", "ZH", 80, 900, 0.42),    // 法译中
+            ("DE", "ZH", 90, 1000, 0.4),    // 德译中
+            ("ES", "EN", 70, 750, 0.95),    // 西译英
+            ("RU", "ZH", 60, 600, 0.5),     // 俄译中
+            ("EN", "JA", 60, 800, 1.1),     // 英译日
+            ("ZH", "JA", 30, 400, 1.3),     // 中译日
         ];
         let error_messages = [
             "Upstream timeout after 10s",
             "HTTP 429 Too Many Requests",
             "TLS handshake failed",
+            "Connection reset by peer",
             "Invalid JSON response from upstream",
-            "Synthetic upstream error for UI QA",
+            "DNS resolution failed",
+        ];
+        // 每小时流量权重（模拟真实使用模式：凌晨低谷，上午高峰，下午平稳，晚间次高峰）
+        let hourly_weights: [u32; 24] = [
+            2, 1, 1, 1, 2, 3, 5, 8, 12, 15, 14, 13,
+            11, 12, 13, 14, 12, 10, 9, 8, 7, 5, 4, 3,
         ];
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
-        let now = now - (now % 3600);
+        let now = now - (now % 60);
         let mut rng = SimpleRng::new(seed);
-        let mut rows = Vec::new();
+        let ep_count = endpoint_names.len().max(1);
 
-        for day_offset in 0..365_i64 {
-            let day_start = now - (364 - day_offset) * 86_400;
-            let samples_per_day = if day_offset >= 300 { 10 } else if day_offset >= 200 { 7 } else { 5 };
-            for sample_idx in 0..samples_per_day {
-                let pair = lang_pairs[((day_offset + sample_idx as i64) as usize) % lang_pairs.len()];
-                let hour = ((sample_idx as i64 * 3 + day_offset) % 24) * 3600;
-                let minute = ((sample_idx as i64 * 11) % 60) * 60;
-                let created_at = day_start + hour + minute;
-                let source_chars = 80 + ((day_offset * 37 + sample_idx as i64 * 19) % 620);
-                let target_chars = std::cmp::max(40, source_chars * (85 + ((sample_idx as i64 % 5) * 6)) / 100);
-                let is_error = sample_idx == 0 && day_offset % 7 == 0;
-                let status = if is_error { "error" } else { "success" };
-                let error_msg = if is_error {
-                    Some(error_messages[rng.next_usize(error_messages.len())])
-                } else {
-                    None
-                };
-                rows.push((pair.0, pair.1, source_chars, target_chars, status, error_msg, created_at));
+        // 端点性能特征：(基础延迟, 延迟波动, 错误率倍数)
+        let ep_profiles: Vec<(u64, u64, u32)> = (0..ep_count)
+            .map(|i| match i % 3 {
+                0 => (180, 120, 1),   // 快速稳定
+                1 => (350, 200, 2),   // 中等
+                _ => (500, 300, 3),   // 较慢，错误多
+            })
+            .collect();
+
+        let mut insert_stmt = conn.prepare(
+            "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms)
+             VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, datetime(?7, 'unixepoch', 'localtime'), ?8, ?9)"
+        )?;
+
+        // 生成 30 天数据，流量逐渐增长
+        for day_offset in 0..30_i64 {
+            let day_start = now - (29 - day_offset) * 86_400;
+            // 流量随时间增长：早期少，近期多
+            let day_multiplier = 1.0 + (day_offset as f64 / 30.0) * 2.5;
+            // 周末流量减少 40%
+            let weekday = ((day_start / 86_400) % 7) as usize;
+            let weekend_factor = if weekday == 5 || weekday == 6 { 0.6 } else { 1.0 };
+
+            for hour in 0..24_u32 {
+                let base_count = (hourly_weights[hour as usize] as f64 * day_multiplier * weekend_factor) as u32;
+                let count = base_count + rng.next_usize(3) as u32;
+
+                for _ in 0..count {
+                    let minute = rng.next_usize(60) as i64;
+                    let second = rng.next_usize(60) as i64;
+                    let created_at = day_start + (hour as i64) * 3600 + minute * 60 + second;
+
+                    // 语言对选择：EN→ZH 占 40%，ZH→EN 占 25%，其余分散
+                    let pair_idx = {
+                        let r = rng.next_usize(100);
+                        if r < 40 { 0 }
+                        else if r < 65 { 1 }
+                        else if r < 75 { 2 }
+                        else if r < 82 { 3 }
+                        else if r < 88 { 4 }
+                        else { 5 + rng.next_usize(lang_profiles.len() - 5) }
+                    };
+                    let (src, tgt, src_min, src_max, tgt_ratio) = lang_profiles[pair_idx % lang_profiles.len()];
+
+                    let source_chars = src_min + (rng.next_usize((src_max - src_min) as usize) as i64);
+                    let target_chars = std::cmp::max(10, (source_chars as f64 * tgt_ratio * (0.85 + rng.next_usize(30) as f64 / 100.0)) as i64);
+
+                    // 端点选择：第一个端点承担更多流量
+                    let ep_idx = if ep_count <= 1 { 0 } else {
+                        let r = rng.next_usize(100);
+                        if r < 55 { 0 } else if r < 85 && ep_count > 1 { 1 } else { rng.next_usize(ep_count) }
+                    };
+                    let ep_name = if endpoint_names.is_empty() { "" } else { &endpoint_names[ep_idx] };
+                    let (base_lat, lat_var, err_mult) = ep_profiles[ep_idx];
+
+                    // 延迟：基础 + 随机波动 + 文本长度影响
+                    let text_factor = (source_chars as u64) / 200;
+                    let latency = base_lat + rng.next_usize(lat_var as usize) as u64 + text_factor * 30;
+
+                    // 错误率：基础 3%，高峰时段 5%，凌晨 1%
+                    let base_error_pct = if hour >= 9 && hour <= 17 { 5 } else if hour <= 5 { 1 } else { 3 };
+                    let error_pct = base_error_pct * err_mult;
+                    let is_error = rng.next_usize(100) < error_pct as usize;
+
+                    let (status, error_msg, final_latency): (&str, Option<&str>, u64) = if is_error {
+                        let err_idx = rng.next_usize(error_messages.len());
+                        let err_latency = if err_idx == 0 { 10000 } else { latency + 2000 + rng.next_usize(3000) as u64 };
+                        ("error", Some(error_messages[err_idx]), err_latency)
+                    } else {
+                        ("success", None, latency)
+                    };
+
+                    insert_stmt.execute(params![
+                        source_chars, src, tgt, target_chars, status, error_msg, created_at, ep_name, final_latency
+                    ])?;
+                }
             }
         }
 
-        let recent_langs = [("EN", "ZH"), ("JA", "ZH"), ("ZH", "EN"), ("DE", "ZH")];
-        for hour_offset in 0..24_i64 {
-            let created_at = now - (23 - hour_offset) * 3600;
-            let pair = recent_langs[(hour_offset as usize) % recent_langs.len()];
-            let source_chars = 120 + (hour_offset * 23) % 520;
-            let target_chars = source_chars + (hour_offset % 7) * 9;
-            let is_error = hour_offset % 6 == 0;
-            let status = if is_error { "error" } else { "success" };
-            let error_msg = if is_error {
-                Some("Synthetic upstream error for UI QA")
-            } else {
-                None
-            };
-            rows.push((pair.0, pair.1, source_chars, target_chars, status, error_msg, created_at));
+        // 今天的密集数据（更细粒度）
+        let today_start = now - (now % 86_400);
+        let current_hour = ((now - today_start) / 3600) as u32;
+        for hour in 0..=current_hour {
+            let extra = (hourly_weights[hour as usize] as f64 * 1.8) as u32;
+            for _ in 0..extra {
+                let minute = rng.next_usize(60) as i64;
+                let second = rng.next_usize(60) as i64;
+                let created_at = today_start + (hour as i64) * 3600 + minute * 60 + second;
+                if created_at > now { continue; }
+
+                let pair_idx = rng.next_usize(lang_profiles.len());
+                let (src, tgt, src_min, src_max, tgt_ratio) = lang_profiles[pair_idx];
+                let source_chars = src_min + (rng.next_usize((src_max - src_min) as usize) as i64);
+                let target_chars = std::cmp::max(10, (source_chars as f64 * tgt_ratio) as i64);
+
+                let ep_idx = if ep_count <= 1 { 0 } else { rng.next_usize(ep_count) };
+                let ep_name = if endpoint_names.is_empty() { "" } else { &endpoint_names[ep_idx] };
+                let (base_lat, lat_var, _) = ep_profiles[ep_idx];
+                let latency = base_lat + rng.next_usize(lat_var as usize) as u64;
+
+                let is_error = rng.next_usize(100) < 4;
+                let (status, error_msg, final_latency): (&str, Option<&str>, u64) = if is_error {
+                    ("error", Some(error_messages[rng.next_usize(error_messages.len())]), latency + 5000)
+                } else {
+                    ("success", None, latency)
+                };
+
+                insert_stmt.execute(params![
+                    source_chars, src, tgt, target_chars, status, error_msg, created_at, ep_name, final_latency
+                ])?;
+            }
         }
 
-        for (source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at) in rows {
-            conn.execute(
-                "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at)
-                 VALUES (?1, ?2, ?3, ?1, ?4, ?5, ?6, datetime(?7, 'unixepoch', 'localtime'))",
-                params![source_chars, source_lang, target_lang, target_chars, status, error_msg, created_at],
-            )?;
-        }
+        drop(insert_stmt);
 
         // 同步累计计数器
         let (count, chars): (i64, i64) = conn.prepare_cached(
@@ -414,8 +502,25 @@ impl Database {
             "UPDATE stats_anchor SET total_requests = ?1, total_chars = ?2 WHERE endpoint_name = ''",
             params![count, chars],
         )?;
-        // 清除端点行（demo 数据不含 endpoint_name）
+        // 清除旧端点行并重建
         conn.execute("DELETE FROM stats_anchor WHERE endpoint_name != ''", [])?;
+        for ep in endpoint_names {
+            let (ep_count_val, ep_chars): (i64, i64) = conn.prepare(
+                "SELECT COUNT(*), COALESCE(SUM(source_chars), 0) FROM translation_logs WHERE endpoint_name = ?1"
+            )?.query_row(params![ep], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            conn.execute(
+                "INSERT OR IGNORE INTO stats_anchor (total_requests, total_chars, anchor_date, endpoint_name) VALUES (?1, ?2, '', ?3)",
+                params![ep_count_val, ep_chars, ep],
+            )?;
+        }
+
+        // 设置缓存统计（模拟 35% 命中率）
+        let cache_hits = count * 35 / 100;
+        let cache_misses = count - cache_hits;
+        conn.execute(
+            "UPDATE stats_anchor SET cache_hits = ?1, cache_misses = ?2 WHERE endpoint_name = ''",
+            params![cache_hits, cache_misses],
+        )?;
 
         Ok(())
     }
@@ -431,28 +536,32 @@ impl Database {
             let mut stmt = conn.prepare_cached(
                 "SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
                         COUNT(*) as count,
-                        COALESCE(SUM(source_chars), 0) as chars
+                        COALESCE(SUM(source_chars), 0) as chars,
+                        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successes,
+                        COALESCE(AVG(latency_ms), 0) as avg_latency
                  FROM translation_logs
                  WHERE created_at >= datetime('now', '-' || ?1 || ' hours', 'localtime')
                  GROUP BY hour
                  ORDER BY hour"
             )?;
             let rows = stmt.query_map(params![hours], |row| {
-                Ok(HourlyStat { hour: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+                Ok(HourlyStat { hour: row.get(0)?, count: row.get(1)?, chars: row.get(2)?, successes: row.get(3)?, avg_latency_ms: row.get(4)? })
             })?;
             rows.collect()
         } else {
             let mut stmt = conn.prepare_cached(
                 "SELECT strftime('%Y-%m-%d %H:00', created_at) as hour,
                         COUNT(*) as count,
-                        COALESCE(SUM(source_chars), 0) as chars
+                        COALESCE(SUM(source_chars), 0) as chars,
+                        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successes,
+                        COALESCE(AVG(latency_ms), 0) as avg_latency
                  FROM translation_logs
                  WHERE created_at >= datetime('now', '-' || ?1 || ' hours', 'localtime') AND endpoint_name = ?2
                  GROUP BY hour
                  ORDER BY hour"
             )?;
             let rows = stmt.query_map(params![hours, ep_filter], |row| {
-                Ok(HourlyStat { hour: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+                Ok(HourlyStat { hour: row.get(0)?, count: row.get(1)?, chars: row.get(2)?, successes: row.get(3)?, avg_latency_ms: row.get(4)? })
             })?;
             rows.collect()
         }
@@ -619,28 +728,32 @@ impl Database {
             let mut stmt = conn.prepare_cached(
                 "SELECT strftime('%Y-%m-%d', created_at) as day,
                         COUNT(*) as count,
-                        COALESCE(SUM(source_chars), 0) as chars
+                        COALESCE(SUM(source_chars), 0) as chars,
+                        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successes,
+                        COALESCE(AVG(latency_ms), 0) as avg_latency
                  FROM translation_logs
                  WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
                  GROUP BY day
                  ORDER BY day"
             )?;
             let rows = stmt.query_map(params![days], |row| {
-                Ok(DailyStat { day: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+                Ok(DailyStat { day: row.get(0)?, count: row.get(1)?, chars: row.get(2)?, successes: row.get(3)?, avg_latency_ms: row.get(4)? })
             })?;
             rows.collect()
         } else {
             let mut stmt = conn.prepare_cached(
                 "SELECT strftime('%Y-%m-%d', created_at) as day,
                         COUNT(*) as count,
-                        COALESCE(SUM(source_chars), 0) as chars
+                        COALESCE(SUM(source_chars), 0) as chars,
+                        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successes,
+                        COALESCE(AVG(latency_ms), 0) as avg_latency
                  FROM translation_logs
                  WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
                  GROUP BY day
                  ORDER BY day"
             )?;
             let rows = stmt.query_map(params![days, ep_filter], |row| {
-                Ok(DailyStat { day: row.get(0)?, count: row.get(1)?, chars: row.get(2)? })
+                Ok(DailyStat { day: row.get(0)?, count: row.get(1)?, chars: row.get(2)?, successes: row.get(3)?, avg_latency_ms: row.get(4)? })
             })?;
             rows.collect()
         }
@@ -858,6 +971,36 @@ impl Database {
         let rows = stmt.query_map(params.as_slice(), map_request_log)?;
         rows.collect()
     }
+
+    pub fn get_timeline_data(&self, days: u32) -> SqliteResult<Vec<TimelineBlock>> {
+        let conn = self.conn.lock().unwrap();
+        let total_blocks: u32 = 672;
+        let total_seconds = days as f64 * 86400.0;
+        let bucket_seconds = total_seconds / total_blocks as f64;
+
+        let mut stmt = conn.prepare_cached(
+            "SELECT CAST(strftime('%s', created_at) AS REAL) as ts,
+                    COUNT(*) as count
+             FROM translation_logs
+             WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+             GROUP BY CAST((CAST(strftime('%s', 'now', 'localtime') AS REAL) - CAST(strftime('%s', created_at) AS REAL)) / ?2 AS INTEGER)
+             ORDER BY ts"
+        )?;
+
+        let now_ts: f64 = conn.query_row(
+            "SELECT CAST(strftime('%s', 'now', 'localtime') AS REAL)", [], |row| row.get(0)
+        )?;
+        let window_start = now_ts - total_seconds;
+
+        let rows = stmt.query_map(params![days, bucket_seconds], |row| {
+            let ts: f64 = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            let offset = ts - window_start;
+            let index = ((offset / bucket_seconds) as i64).clamp(0, total_blocks as i64 - 1) as u32;
+            Ok(TimelineBlock { index, count })
+        })?;
+        rows.collect()
+    }
 }
 
 fn map_request_log(row: &rusqlite::Row) -> rusqlite::Result<RequestLog> {
@@ -892,6 +1035,8 @@ pub struct HourlyStat {
     pub hour: String,
     pub count: i64,
     pub chars: i64,
+    pub successes: i64,
+    pub avg_latency_ms: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -913,6 +1058,8 @@ pub struct DailyStat {
     pub day: String,
     pub count: i64,
     pub chars: i64,
+    pub successes: i64,
+    pub avg_latency_ms: f64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -928,6 +1075,12 @@ pub struct ErrorTrendPoint {
     pub total: i64,
     pub errors: i64,
     pub error_rate: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TimelineBlock {
+    pub index: u32,
+    pub count: i64,
 }
 
 #[cfg(test)]
@@ -952,12 +1105,12 @@ mod tests {
     #[test]
     fn test_log_translation_increments_anchor() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "", None).unwrap();
         let (req, chars) = db.get_current_log_totals().unwrap();
         assert_eq!(req, 1);
         assert_eq!(chars, 100);
 
-        db.log_translation("EN", "ZH", 50, 40, "success", None, "").unwrap();
+        db.log_translation("EN", "ZH", 50, 40, "success", None, "", None).unwrap();
         let (req, chars) = db.get_current_log_totals().unwrap();
         assert_eq!(req, 2);
         assert_eq!(chars, 150);
@@ -967,7 +1120,7 @@ mod tests {
     fn test_cleanup_does_not_decrease_totals() {
         let db = temp_db();
         for i in 0..20 {
-            db.log_translation("EN", "ZH", 10 + i, 8, "success", None, "").unwrap();
+            db.log_translation("EN", "ZH", 10 + i, 8, "success", None, "", None).unwrap();
         }
         let (req_before, chars_before) = db.get_current_log_totals().unwrap();
         assert_eq!(req_before, 20);
@@ -984,7 +1137,7 @@ mod tests {
     fn test_cleanup_no_op_when_under_limit() {
         let db = temp_db();
         for _ in 0..5 {
-            db.log_translation("EN", "ZH", 10, 8, "success", None, "").unwrap();
+            db.log_translation("EN", "ZH", 10, 8, "success", None, "", None).unwrap();
         }
         let deleted = db.cleanup_old_logs(10).unwrap();
         assert_eq!(deleted, 0);
@@ -993,8 +1146,8 @@ mod tests {
     #[test]
     fn test_get_period_stats() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
-        db.log_translation("EN", "ZH", 200, 160, "error", Some("timeout"), "").unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "", None).unwrap();
+        db.log_translation("EN", "ZH", 200, 160, "error", Some("timeout"), "", None).unwrap();
 
         let (count, chars) = db.get_period_stats(1).unwrap();
         assert_eq!(count, 2);
@@ -1005,7 +1158,7 @@ mod tests {
     fn test_get_requests_pagination() {
         let db = temp_db();
         for i in 0..10 {
-            db.log_translation("EN", "ZH", i + 1, 0, "success", None, "").unwrap();
+            db.log_translation("EN", "ZH", i + 1, 0, "success", None, "", None).unwrap();
         }
 
         let (items, total) = db.get_requests(1, 5).unwrap();
@@ -1023,7 +1176,7 @@ mod tests {
     #[test]
     fn test_error_logging() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 50, 0, "error", Some("upstream timeout"), "").unwrap();
+        db.log_translation("EN", "ZH", 50, 0, "error", Some("upstream timeout"), "", None).unwrap();
 
         let (items, _) = db.get_requests(1, 50).unwrap();
         assert_eq!(items[0].status, "error");
@@ -1043,12 +1196,12 @@ mod tests {
     fn test_replace_with_demo_data_syncs_anchor() {
         let db = temp_db();
         // 先插入一些正常数据
-        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "", None).unwrap();
         let (req_before, _) = db.get_current_log_totals().unwrap();
         assert_eq!(req_before, 1);
 
         // demo 数据替换后，anchor 应该反映新的日志数量
-        db.replace_with_demo_data(12345).unwrap();
+        db.replace_with_demo_data(12345, &["ep1".to_string(), "ep2".to_string()]).unwrap();
         let (req_after, chars_after) = db.get_current_log_totals().unwrap();
         assert!(req_after > 0, "demo 数据后 anchor 应该 > 0");
 
@@ -1140,9 +1293,9 @@ mod tests {
     #[test]
     fn test_export_with_filters() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
-        db.log_translation("JA", "ZH", 50, 40, "error", Some("fail"), "").unwrap();
-        db.log_translation("EN", "ZH", 200, 160, "success", None, "").unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "", None).unwrap();
+        db.log_translation("JA", "ZH", 50, 40, "error", Some("fail"), "", None).unwrap();
+        db.log_translation("EN", "ZH", 200, 160, "success", None, "", None).unwrap();
 
         let logs = db.get_export_logs(None, None, Some("JA"), None).unwrap();
         assert_eq!(logs.len(), 1);
@@ -1156,7 +1309,7 @@ mod tests {
     #[test]
     fn test_heatmap_by_weekday() {
         let db = temp_db();
-        db.log_translation("EN", "ZH", 100, 80, "success", None, "").unwrap();
+        db.log_translation("EN", "ZH", 100, 80, "success", None, "", None).unwrap();
         let data = db.get_heatmap_by_weekday(30).unwrap();
         assert!(!data.is_empty());
         let weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
@@ -1172,7 +1325,7 @@ mod tests {
         let db = temp_db();
         let test_cases: Vec<i64> = vec![1, 50, 100, 999, 12345];
         for chars in &test_cases {
-            db.log_translation("EN", "ZH", *chars, 0, "success", None, "").unwrap();
+            db.log_translation("EN", "ZH", *chars, 0, "success", None, "", None).unwrap();
         }
 
         let conn = db.conn.lock().unwrap();
@@ -1256,7 +1409,7 @@ mod tests {
         for i in 0..10 {
             let db = Arc::clone(&db);
             handles.push(thread::spawn(move || {
-                db.log_translation("EN", "ZH", i + 1, 0, "success", None, "").unwrap();
+                db.log_translation("EN", "ZH", i + 1, 0, "success", None, "", None).unwrap();
             }));
         }
 
