@@ -48,6 +48,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
+        shell: bash
         run: rm -f package-lock.json && npm install
 
       - name: Build frontend
