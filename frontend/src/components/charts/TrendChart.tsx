@@ -100,6 +100,7 @@ export function TrendChart({ title, labels, lineDataset, barDatasets = [], heigh
           borderColor: ds.borderColor ?? colorPair.base,
           borderWidth: 1,
           borderRadius: 3,
+          maxBarThickness: 48,
           stack: 'endpoints',
           order: 1,
         }

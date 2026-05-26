@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { apiFetch } from '@/hooks/useApi'
 import type { StatsResponse, ChartData, LangStat, LangHourlyUsage, HeatmapResponse, ErrorTrendPoint } from '@/types'
 
@@ -27,7 +28,9 @@ interface StatsState {
   fetchAll: (days?: number | null) => Promise<void>
 }
 
-export const useStatsStore = create<StatsState>((set, get) => ({
+export const useStatsStore = create<StatsState>()(
+  persist(
+    (set, get) => ({
   stats: null,
   chartData: null,
   langStats: [],
@@ -124,4 +127,10 @@ export const useStatsStore = create<StatsState>((set, get) => ({
     ])
     set({ loading: false })
   },
-}))
+    }),
+    {
+      name: 'stats-preferences',
+      partialize: (state) => ({ refreshInterval: state.refreshInterval, days: state.days }),
+    }
+  )
+)

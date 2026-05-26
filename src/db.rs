@@ -298,14 +298,14 @@ impl Database {
         let mut logs = Vec::new();
         if ep_filter.is_empty() {
             let mut stmt = conn.prepare_cached(
-                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
+                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms
                  FROM translation_logs ORDER BY id DESC LIMIT ?1 OFFSET ?2"
             )?;
             let rows = stmt.query_map(params![page_size, offset], map_request_log)?;
             for row in rows { logs.push(row?); }
         } else {
             let mut stmt = conn.prepare_cached(
-                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at
+                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms
                  FROM translation_logs WHERE endpoint_name = ?3 ORDER BY id DESC LIMIT ?1 OFFSET ?2"
             )?;
             let rows = stmt.query_map(params![page_size, offset, ep_filter], map_request_log)?;
@@ -576,11 +576,14 @@ impl Database {
         let ep_filter = endpoint.unwrap_or("");
         if ep_filter.is_empty() {
             let query = r#"
-                SELECT source_lang, SUM(source_chars), 0 AS target_chars
-                FROM translation_logs GROUP BY source_lang
-                UNION ALL
-                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
-                FROM translation_logs GROUP BY target_lang
+                SELECT lang, SUM(source_chars) AS source_chars, SUM(target_chars) AS target_chars
+                FROM (
+                    SELECT source_lang AS lang, source_chars, 0 AS target_chars FROM translation_logs
+                    UNION ALL
+                    SELECT target_lang AS lang, 0 AS source_chars, target_chars FROM translation_logs
+                )
+                GROUP BY lang
+                ORDER BY (SUM(source_chars) + SUM(target_chars)) DESC
             "#;
             let mut stmt = conn.prepare_cached(query)?;
             let rows = stmt.query_map([], |row| {
@@ -589,11 +592,14 @@ impl Database {
             rows.collect()
         } else {
             let query = r#"
-                SELECT source_lang, SUM(source_chars), 0 AS target_chars
-                FROM translation_logs WHERE endpoint_name = ?1 GROUP BY source_lang
-                UNION ALL
-                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
-                FROM translation_logs WHERE endpoint_name = ?1 GROUP BY target_lang
+                SELECT lang, SUM(source_chars) AS source_chars, SUM(target_chars) AS target_chars
+                FROM (
+                    SELECT source_lang AS lang, source_chars, 0 AS target_chars FROM translation_logs WHERE endpoint_name = ?1
+                    UNION ALL
+                    SELECT target_lang AS lang, 0 AS source_chars, target_chars FROM translation_logs WHERE endpoint_name = ?1
+                )
+                GROUP BY lang
+                ORDER BY (SUM(source_chars) + SUM(target_chars)) DESC
             "#;
             let mut stmt = conn.prepare_cached(query)?;
             let rows = stmt.query_map(params![ep_filter], |row| {
@@ -612,15 +618,18 @@ impl Database {
         let ep_filter = endpoint.unwrap_or("");
         if ep_filter.is_empty() {
             let query = r#"
-                SELECT source_lang, SUM(source_chars), 0 AS target_chars
-                FROM translation_logs
-                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-                GROUP BY source_lang
-                UNION ALL
-                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
-                FROM translation_logs
-                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
-                GROUP BY target_lang
+                SELECT lang, SUM(source_chars) AS source_chars, SUM(target_chars) AS target_chars
+                FROM (
+                    SELECT source_lang AS lang, source_chars, 0 AS target_chars
+                    FROM translation_logs
+                    WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                    UNION ALL
+                    SELECT target_lang AS lang, 0 AS source_chars, target_chars
+                    FROM translation_logs
+                    WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime')
+                )
+                GROUP BY lang
+                ORDER BY (SUM(source_chars) + SUM(target_chars)) DESC
             "#;
             let mut stmt = conn.prepare_cached(query)?;
             let rows = stmt.query_map(params![days], |row| {
@@ -629,15 +638,18 @@ impl Database {
             rows.collect()
         } else {
             let query = r#"
-                SELECT source_lang, SUM(source_chars), 0 AS target_chars
-                FROM translation_logs
-                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
-                GROUP BY source_lang
-                UNION ALL
-                SELECT target_lang, 0 AS source_chars, SUM(target_chars)
-                FROM translation_logs
-                WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
-                GROUP BY target_lang
+                SELECT lang, SUM(source_chars) AS source_chars, SUM(target_chars) AS target_chars
+                FROM (
+                    SELECT source_lang AS lang, source_chars, 0 AS target_chars
+                    FROM translation_logs
+                    WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                    UNION ALL
+                    SELECT target_lang AS lang, 0 AS source_chars, target_chars
+                    FROM translation_logs
+                    WHERE created_at >= datetime('now', '-' || ?1 || ' days', 'localtime') AND endpoint_name = ?2
+                )
+                GROUP BY lang
+                ORDER BY (SUM(source_chars) + SUM(target_chars)) DESC
             "#;
             let mut stmt = conn.prepare_cached(query)?;
             let rows = stmt.query_map(params![days, ep_filter], |row| {
@@ -1014,6 +1026,8 @@ fn map_request_log(row: &rusqlite::Row) -> rusqlite::Result<RequestLog> {
         status: row.get(6)?,
         error_msg: row.get(7)?,
         created_at: row.get(8)?,
+        endpoint_name: row.get(9).ok(),
+        latency_ms: row.get(10).ok(),
     })
 }
 
@@ -1028,6 +1042,8 @@ pub struct RequestLog {
     pub status: String,
     pub error_msg: Option<String>,
     pub created_at: String,
+    pub endpoint_name: Option<String>,
+    pub latency_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
