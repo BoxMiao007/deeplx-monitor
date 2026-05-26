@@ -182,28 +182,28 @@ export function Overview() {
         <StatCard
           label={t('overview.totalRequests')}
           value={formatNum(stats?.total_requests ?? 0)}
-          subtitle={t('overview.cumulative')}
+          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>}
           chartData={sparkRequests}
           chartColor="#8b5cf6"
         />
         <StatCard
           label={t('overview.totalChars')}
           value={formatNum(stats?.total_chars ?? 0)}
-          subtitle={t('overview.cumulative')}
+          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>}
           chartData={sparkChars}
-          chartColor="#22c55e"
+          chartColor="#06b6d4"
         />
         <StatCard
           label={t('overview.successRate')}
           value={`${successRate}%`}
-          subtitle={t('overview.trend')}
+          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>}
           chartData={sparkSuccessRate}
-          chartColor="#06b6d4"
+          chartColor="#22c55e"
         />
         <StatCard
           label={t('overview.avgLatency')}
           value={stats?.health.latency_ms != null ? `${stats.health.latency_ms}ms` : '-'}
-          subtitle={t('overview.trend')}
+          icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>}
           chartData={sparkLatency}
           chartColor="#f97316"
         />
