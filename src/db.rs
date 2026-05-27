@@ -141,6 +141,24 @@ impl Database {
             }
         }
 
+        // 迁移：添加 total_successes 和 latency_sum_ms 列（用于重启后恢复端点统计）
+        {
+            let mut stmt = conn.prepare_cached("PRAGMA table_info(stats_anchor)")?;
+            let anchor_cols: Vec<String> = stmt.query_map([], |row| row.get(1))?.filter_map(|r| r.ok()).collect();
+            if !anchor_cols.iter().any(|c| c == "total_successes") {
+                conn.execute("ALTER TABLE stats_anchor ADD COLUMN total_successes INTEGER NOT NULL DEFAULT 0", [])?;
+                conn.execute("ALTER TABLE stats_anchor ADD COLUMN latency_sum_ms INTEGER NOT NULL DEFAULT 0", [])?;
+                // 从现有日志补种
+                conn.execute(
+                    "UPDATE stats_anchor SET
+                        total_successes = COALESCE((SELECT COUNT(*) FROM translation_logs WHERE status = 'success' AND translation_logs.endpoint_name = stats_anchor.endpoint_name), 0),
+                        latency_sum_ms = COALESCE((SELECT SUM(latency_ms) FROM translation_logs WHERE status = 'success' AND latency_ms IS NOT NULL AND translation_logs.endpoint_name = stats_anchor.endpoint_name), 0)
+                     WHERE endpoint_name != ''",
+                    [],
+                )?;
+            }
+        }
+
         // 确保全局行存在
         conn.execute(
             "INSERT OR IGNORE INTO stats_anchor (total_requests, total_chars, anchor_date, endpoint_name)
@@ -199,6 +217,13 @@ impl Database {
                 "UPDATE stats_anchor SET total_requests = total_requests + 1, total_chars = total_chars + ?1 WHERE endpoint_name = ?2",
                 params![source_chars, endpoint_name],
             )?;
+            if status == "success" {
+                let lat = latency_ms.unwrap_or(0) as i64;
+                conn.execute(
+                    "UPDATE stats_anchor SET total_successes = total_successes + 1, latency_sum_ms = latency_sum_ms + ?1 WHERE endpoint_name = ?2",
+                    params![lat, endpoint_name],
+                )?;
+            }
         }
         Ok(conn.last_insert_rowid())
     }
@@ -245,6 +270,29 @@ impl Database {
         )?;
         stmt.query_row(params![endpoint_name], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
             .or(Ok((0, 0)))
+    }
+
+    /// 加载所有端点的持久化统计（用于重启后恢复 LoadBalancer 计数器）
+    pub fn load_endpoint_stats(&self) -> Vec<(String, u64, u64, u64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn.prepare_cached(
+            "SELECT endpoint_name, total_requests, total_successes, latency_sum_ms FROM stats_anchor WHERE endpoint_name != ''"
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)? as u64,
+                row.get::<_, i64>(2)? as u64,
+                row.get::<_, i64>(3)? as u64,
+            ))
+        });
+        match rows {
+            Ok(iter) => iter.filter_map(|r| r.ok()).collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     pub fn get_period_stats_filtered(&self, days: u32, endpoint: Option<&str>) -> SqliteResult<(i64, i64)> {

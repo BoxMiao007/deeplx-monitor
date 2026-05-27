@@ -359,6 +359,18 @@ impl LoadBalancer {
         results
     }
 
+    /// 从数据库恢复端点统计计数器（重启后保持数据连续）
+    pub async fn restore_stats(&self, stats: &[(String, u64, u64, u64)]) {
+        let endpoints = self.endpoints.read().await;
+        for (name, total_requests, total_successes, latency_sum_ms) in stats {
+            if let Some(ep) = endpoints.iter().find(|e| &e.config.name == name) {
+                ep.total_requests.store(*total_requests, Ordering::Relaxed);
+                ep.total_successes.store(*total_successes, Ordering::Relaxed);
+                ep.latency_sum_ms.store(*latency_sum_ms, Ordering::Relaxed);
+            }
+        }
+    }
+
     /// 演示模式：填充假统计数据
     pub async fn seed_demo_stats(&self) {
         let endpoints = self.endpoints.read().await;

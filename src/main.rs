@@ -64,6 +64,15 @@ async fn main() {
         }
     }
 
+    // 启动时从数据库恢复端点请求统计（请求数、成功数、延迟累计）
+    {
+        let ep_stats = state.db.load_endpoint_stats();
+        if !ep_stats.is_empty() {
+            state.load_balancer.restore_stats(&ep_stats).await;
+            tracing::info!("Restored endpoint stats from DB for {} endpoints", ep_stats.len());
+        }
+    }
+
     // 演示模式：预填充缓存假数据
     if demo_enabled {
         let demo_translations = [
