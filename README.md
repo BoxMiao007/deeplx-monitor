@@ -14,7 +14,7 @@ DeepLX 翻译代理与监控面板。作为客户端与 DeepLX API 之间的中�
 - 翻译结果缓存（LRU，可配置 TTL、容量和内存限制）
 - 配置热加载（修改 config.toml 自动生效，无需重启）
 - 请求日志与统计（字符数、语言对、延迟、成功率）
-- 可视化面板（5 个标签页：概览、分析、端点、日志、设置）
+- 可视化面板（4 个标签页：概览、分析、日志、设置）
 - 图表分析（调用趋势、语言统计、错误率、活动热力图、圆环图）
 - 多语言支持（中文 / English）
 - 数据导出（CSV / JSON）
@@ -36,7 +36,7 @@ src/
 
 frontend/
 ├── src/
-│   ├── pages/          # 5 个标签页（Overview, Analysis, Endpoints, Logs, Settings）
+│   ├── pages/          # 4 个标签页（Overview, Analysis, Logs, Settings）
 │   ├── components/     # UI 组件（charts, layout, shared, ui）
 │   ├── stores/         # Zustand 状态管理
 │   ├── hooks/          # 自定义 hooks（useApi, useAutoRefresh）

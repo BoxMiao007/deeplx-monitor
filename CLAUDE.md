@@ -9,7 +9,7 @@ DeepLX Monitor — a translation proxy and monitoring dashboard for DeepLX API. 
 ## Tech Stack
 
 - **Backend**: Rust (Axum + Tokio), SQLite via `rusqlite`, static asset embedding via `rust-embed`, moka (LRU cache), notify (file watcher)
-- **Frontend**: React 19 + TypeScript + Vite, Zustand for state, Chart.js + Recharts for charts, SCSS Modules, react-i18next (single-page dashboard with 5 tabs)
+- **Frontend**: React 19 + TypeScript + Vite, Zustand for state, Chart.js + Recharts for charts, SCSS Modules, react-i18next (single-page dashboard with 4 tabs)
 - **Build output**: Frontend builds to `../dist/` (project root `dist/`), Rust binary embeds `dist/` at compile time
 
 ## Commands
@@ -47,7 +47,7 @@ Client ──POST /translate──► proxy.rs ──► LoadBalancer ──► 
 - **`main.rs`**: Axum router setup, SPA/asset handlers, background tasks (log cleanup, endpoint probing, config file watcher). Listens on address from `config.toml` `[proxy]` section.
 - **`proxy.rs`**: `/translate` handler — checks cache, selects upstream via LoadBalancer, forwards request, measures latency, logs result to DB.
 - **`api.rs`**: All `/api/*` endpoints — stats, charts, request logs, health check, full config CRUD, upstream status, cache stats, analytics (heatmap, error trend), data export.
-- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Tables: `translation_logs` (per-request rows) and `stats_anchor` (cumulative request/char counters + cache hit/miss counters). Totals read from `stats_anchor` (not affected by log cleanup).
+- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Tables: `translation_logs` (per-request rows) and `stats_anchor` (cumulative request/char counters + cache hit/miss counters + per-endpoint success/latency counters). Totals read from `stats_anchor` (not affected by log cleanup). Endpoint stats restored to LoadBalancer on startup.
 - **`state.rs`**: `AppState` holds `Arc<RwLock<Config>>`, `Arc<Database>`, `Arc<RwLock<HealthStatus>>`, `Arc<LoadBalancer>`, `Arc<TranslationCache>`, `reqwest::Client`.
 - **`config.rs`**: TOML config with sections: `[upstream]`, `[proxy]`, `[monitor]`, `[health_check]`, `[cache]`, `[demo]`. Includes `watch_config_file()` for hot-reload via `notify`.
 - **`upstream.rs`**: Multi-endpoint load balancer (round-robin + failover). Supports runtime `reload()` when config changes.
@@ -143,67 +143,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
-## 版本号与发布规则
-
-### 版本号管理
-
-- 版本号同时存在于 `Cargo.toml` 和 `Cargo.lock` 两个文件，更新时必须同步修改。
-- 版本号规则（语义化）：
-  - 小修复（bug fix、样式调整）：每条 +0.0.1
-  - 大修复（重要 bug、性能优化）：每条 +0.0.5
-  - 添加功能（新特性、新页面）：+0.1.0
-  - 每位满 10 进 1（如 2.0.9 + 0.0.1 = 2.1.0；2.9.0 + 0.1.0 = 3.0.0）
-- 仅代码修改时才更新版本号，纯文档更新不更新版本号。
-
-### 提交规则
-
-- 提交前必须运行 `npx gitnexus analyze` 更新知识图谱索引。
-- 提交后推送到远程。
-
-### 发布规则
-
-- 发布前完成上述提交规则。
-- 在 GitHub 创建 Release（tag 格式 `vX.Y.Z`），写好说明后发布。
-- 工作流会自动触发构建并上传产物到该 Release。
-- 创建命令：`gh release create vX.Y.Z --title "vX.Y.Z" --notes "..."`
-- Release 说明模板（没有内容的章节直接省略不写）：
-
-```
-## 🚀 新特性
-
-- **功能名称** — 简要描述
-
-## 🐛 修复
-
-- **问题描述** — 修复内容
-
-## 📦 打包改进
-
-- 改进内容
-
-## 🔧 其他
-
-- 其他变更
-
----
-
-## 🚀 What's New
-
-- **Feature name** — Brief description
-
-## 🐛 Fixes
-
-- **Issue description** — Fix details
-
-## 📦 Packaging
-
-- Improvement details
-
-## 🔧 Other
-
-- Other changes
-```
-
 ### 端口说明
 
 - 项目默认端口为 `5555`（config.toml 中配置）。
@@ -211,10 +150,32 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ---
 
+<!-- TRELLIS:START -->
+# Trellis Instructions
+
+These instructions are for AI assistants working in this project.
+
+This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
+
+- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
+- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.trellis/workspace/` — per-developer journals and session traces
+- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
+
+If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+
+If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
+- `.agents/skills/` — reusable Trellis skills
+- `.codex/agents/` — optional custom subagents
+
+Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+
+<!-- TRELLIS:END -->
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **deeplx-monitor** (1149 symbols, 2060 relationships, 66 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **deeplx-monitor** (1153 symbols, 2064 relationships, 65 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
