@@ -24,6 +24,7 @@ export function Overview() {
   const { endpoints, cacheStats, cacheHitLogs, fetchUpstreamStatus, fetchCacheStats, fetchCacheHitLogs, clearCache, triggerHealthCheck } = useEndpointStore()
   const [confirmClear, setConfirmClear] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [chartLabels, setChartLabels] = useState<string[]>([])
   const [totalLine, setTotalLine] = useState<TrendDataset>({ label: '', data: [] })
   const [charsLine, setCharsLine] = useState<TrendDataset>({ label: '', data: [] })
@@ -112,8 +113,10 @@ export function Overview() {
   }, [fetchAll, fetchUpstreamStatus, fetchCacheStats, endpoints, fetchChartData])
 
   const refresh = useCallback(async () => {
+    setRefreshing(true)
     await refreshData()
     showToast(t('overview.refreshDone'))
+    setRefreshing(false)
   }, [refreshData, t])
 
   useAutoRefresh(refreshData, refreshInterval)
@@ -189,7 +192,7 @@ export function Overview() {
           ]}
         />
         <Button variant="secondary" className={styles.refreshBtn} onClick={refresh}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          <svg className={refreshing ? styles.spinning : ''} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           {t('overview.refresh')}
         </Button>
       </div>
@@ -198,6 +201,7 @@ export function Overview() {
         <StatCard
           label={t('overview.totalRequests')}
           value={formatNum(stats?.total_requests ?? 0)}
+          detailValue={(stats?.total_requests ?? 0).toLocaleString()}
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>}
           chartData={sparkRequests}
           chartColor="#8b5cf6"
@@ -205,6 +209,7 @@ export function Overview() {
         <StatCard
           label={t('overview.totalChars')}
           value={formatNum(stats?.total_chars ?? 0)}
+          detailValue={(stats?.total_chars ?? 0).toLocaleString()}
           icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>}
           chartData={sparkChars}
           chartColor="#06b6d4"

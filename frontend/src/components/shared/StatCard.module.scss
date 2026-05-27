@@ -30,6 +30,11 @@
   }
 }
 
+.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
 .head {
   display: flex;
   align-items: center;
@@ -60,11 +65,17 @@
   }
 }
 
+.valueWrap {
+  overflow: hidden;
+}
+
 .value {
   font-size: 24px;
   font-weight: 800;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: font-size 0.15s ease;
 }
 
 .chart {

@@ -3,6 +3,7 @@ import { useThemeStore } from '@/stores/useThemeStore'
 import { useStatsStore } from '@/stores/useStatsStore'
 import { TopBar } from '@/components/layout/TopBar'
 import { PageShell } from '@/components/layout/PageShell'
+import { Footer } from '@/components/layout/Footer'
 import { ToastContainer } from '@/components/shared/Toast'
 import { Overview } from '@/pages/Overview'
 import { Analysis } from '@/pages/Analysis'
@@ -58,6 +59,7 @@ function App() {
     <>
       <TopBar activeTab={activeTab} onTabChange={onTabChange} />
       <PageShell>{renderPage()}</PageShell>
+      <Footer />
       <ToastContainer />
     </>
   )

@@ -318,35 +318,58 @@ impl Database {
         page: u32,
         page_size: u32,
         endpoint: Option<&str>,
+        status: Option<&str>,
     ) -> SqliteResult<(Vec<RequestLog>, i64)> {
         let conn = self.conn.lock().unwrap();
         let offset = (page - 1) * page_size;
         let ep_filter = endpoint.unwrap_or("");
+        let st_filter = status.unwrap_or("");
 
-        let total: i64 = if ep_filter.is_empty() {
-            conn.prepare_cached("SELECT COUNT(*) FROM translation_logs")?
-                .query_row([], |row| row.get(0))?
+        let mut where_clauses = Vec::new();
+        let mut count_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if !ep_filter.is_empty() {
+            where_clauses.push("endpoint_name = ?");
+            count_params.push(Box::new(ep_filter.to_string()));
+        }
+        if !st_filter.is_empty() {
+            where_clauses.push("status = ?");
+            count_params.push(Box::new(st_filter.to_string()));
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
         } else {
-            conn.prepare_cached("SELECT COUNT(*) FROM translation_logs WHERE endpoint_name = ?1")?
-                .query_row(params![ep_filter], |row| row.get(0))?
+            format!(" WHERE {}", where_clauses.join(" AND "))
         };
+
+        let count_sql = format!("SELECT COUNT(*) FROM translation_logs{}", where_sql);
+        let total: i64 = {
+            let mut stmt = conn.prepare(&count_sql)?;
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> = count_params.iter().map(|p| p.as_ref()).collect();
+            stmt.query_row(params_ref.as_slice(), |row| row.get(0))?
+        };
+
+        let query_sql = format!(
+            "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms
+             FROM translation_logs{} ORDER BY id DESC LIMIT ? OFFSET ?",
+            where_sql
+        );
+
+        let mut query_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if !ep_filter.is_empty() {
+            query_params.push(Box::new(ep_filter.to_string()));
+        }
+        if !st_filter.is_empty() {
+            query_params.push(Box::new(st_filter.to_string()));
+        }
+        query_params.push(Box::new(page_size));
+        query_params.push(Box::new(offset));
 
         let mut logs = Vec::new();
-        if ep_filter.is_empty() {
-            let mut stmt = conn.prepare_cached(
-                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms
-                 FROM translation_logs ORDER BY id DESC LIMIT ?1 OFFSET ?2"
-            )?;
-            let rows = stmt.query_map(params![page_size, offset], map_request_log)?;
-            for row in rows { logs.push(row?); }
-        } else {
-            let mut stmt = conn.prepare_cached(
-                "SELECT id, chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms
-                 FROM translation_logs WHERE endpoint_name = ?3 ORDER BY id DESC LIMIT ?1 OFFSET ?2"
-            )?;
-            let rows = stmt.query_map(params![page_size, offset, ep_filter], map_request_log)?;
-            for row in rows { logs.push(row?); }
-        };
+        let mut stmt = conn.prepare(&query_sql)?;
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = query_params.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(params_ref.as_slice(), map_request_log)?;
+        for row in rows { logs.push(row?); }
 
         Ok((logs, total))
     }
@@ -1181,14 +1204,14 @@ mod tests {
             db.log_translation("EN", "ZH", i + 1, 0, "success", None, "", None).unwrap();
         }
 
-        let (items, total) = db.get_requests_filtered(1, 5, None).unwrap();
+        let (items, total) = db.get_requests_filtered(1, 5, None, None).unwrap();
         assert_eq!(total, 10);
         assert_eq!(items.len(), 5);
         // 按 id DESC 排序，第一页应该是最新的
         assert_eq!(items[0].id, 10);
         assert_eq!(items[4].id, 6);
 
-        let (items, _) = db.get_requests_filtered(2, 5, None).unwrap();
+        let (items, _) = db.get_requests_filtered(2, 5, None, None).unwrap();
         assert_eq!(items.len(), 5);
         assert_eq!(items[0].id, 5);
     }
@@ -1198,7 +1221,7 @@ mod tests {
         let db = temp_db();
         db.log_translation("EN", "ZH", 50, 0, "error", Some("upstream timeout"), "", None).unwrap();
 
-        let (items, _) = db.get_requests_filtered(1, 50, None).unwrap();
+        let (items, _) = db.get_requests_filtered(1, 50, None, None).unwrap();
         assert_eq!(items[0].status, "error");
         assert_eq!(items[0].error_msg.as_deref(), Some("upstream timeout"));
     }
@@ -1467,7 +1490,7 @@ mod tests {
         assert!(period_chars > 0, "365天内应有字符");
 
         // 验证分页查询
-        let (items, total) = db.get_requests_filtered(1, 10, None).unwrap();
+        let (items, total) = db.get_requests_filtered(1, 10, None, None).unwrap();
         assert!(total > 0);
         assert!(!items.is_empty());
         // 验证 source_chars 字段是正确的整数

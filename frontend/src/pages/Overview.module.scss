@@ -18,6 +18,15 @@
   font-size: 14px !important;
 }
 
+.spinning {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

@@ -138,6 +138,7 @@ pub struct RequestsQuery {
     pub page: Option<u32>,
     pub page_size: Option<u32>,
     pub endpoint: Option<String>,
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -155,11 +156,13 @@ pub async fn requests(
     let page = query.page.unwrap_or(1).max(1);
     let page_size = query.page_size.unwrap_or(50).clamp(1, 200);
     let endpoint_filter = query.endpoint.unwrap_or_default();
+    let status_filter = query.status.unwrap_or_default();
 
     let db = state.db.clone();
     let (items, total) = tokio::task::spawn_blocking(move || {
         let ep = if endpoint_filter.is_empty() { None } else { Some(endpoint_filter.as_str()) };
-        db.get_requests_filtered(page, page_size, ep).unwrap_or((vec![], 0))
+        let st = if status_filter.is_empty() { None } else { Some(status_filter.as_str()) };
+        db.get_requests_filtered(page, page_size, ep, st).unwrap_or((vec![], 0))
     }).await.unwrap_or((vec![], 0));
 
     Json(RequestsResponse {

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStatsStore } from '@/stores/useStatsStore'
 import { useEndpointStore } from '@/stores/useEndpointStore'
-import { apiFetch } from '@/hooks/useApi'
 import { Card } from '@/components/ui/Card/Card'
 import { Select } from '@/components/ui/Select/Select'
 import { Heatmap } from '@/components/charts/Heatmap'
@@ -10,7 +9,6 @@ import { ErrorTrend } from '@/components/charts/ErrorTrend'
 import { DonutChart } from '@/components/charts/DonutChart'
 import { EmptyState } from '@/components/ui/EmptyState/EmptyState'
 import { LangFlag } from '@/components/shared/LangFlag'
-import type { StatsResponse } from '@/types'
 import styles from './Analysis.module.scss'
 
 export function Analysis() {
@@ -19,34 +17,28 @@ export function Analysis() {
     errorTrend, langStats, days,
     fetchErrorTrend, fetchLangStats,
   } = useStatsStore()
-  const { endpoints, fetchUpstreamStatus } = useEndpointStore()
-  const [epChars, setEpChars] = useState<{ label: string; value: number }[]>([])
+  const { endpoints, epChars, fetchUpstreamStatus, fetchEpChars } = useEndpointStore()
   const [heatmapDays, setHeatmapDays] = useState(1)
+  const [errorDays, setErrorDays] = useState(1)
 
   useEffect(() => {
-    fetchErrorTrend(7)
+    fetchErrorTrend(1, 'hourly')
     fetchLangStats(days)
     fetchUpstreamStatus()
   }, [fetchErrorTrend, fetchLangStats, fetchUpstreamStatus, days])
 
   useEffect(() => {
-    if (endpoints.length < 2) return
-    Promise.all(
-      endpoints.map(ep => apiFetch<StatsResponse>(`/api/stats?endpoint=${encodeURIComponent(ep.name)}`))
-    ).then(results => {
-      setEpChars(endpoints.map((ep, i) => ({
-        label: ep.name,
-        value: results[i]?.total_chars ?? 0,
-      })))
-    }).catch(() => {})
-  }, [endpoints])
+    fetchEpChars()
+  }, [endpoints, fetchEpChars])
 
   const onHeatmapDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setHeatmapDays(Number(e.target.value))
   }
 
   const onErrorDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    fetchErrorTrend(Number(e.target.value))
+    const d = Number(e.target.value)
+    setErrorDays(d)
+    fetchErrorTrend(d, d === 1 ? 'hourly' : undefined)
   }
 
   const requestDonutData = endpoints.map(ep => ({
@@ -79,7 +71,7 @@ export function Analysis() {
           <div className={styles.statCardLarge}>
             <DonutChart
               title={t('analysis.charShare')}
-              data={epChars.length > 0 ? epChars : requestDonutData}
+              data={epChars}
             />
           </div>
         </div>
@@ -124,9 +116,10 @@ export function Analysis() {
         <div className={styles.cardHeader}>
           <h3>{t('analysis.errorTrend')}</h3>
           <Select
-            value="7"
+            value={errorDays}
             onChange={onErrorDaysChange}
             options={[
+              { value: 1, label: '24h' },
               { value: 7, label: '7d' },
               { value: 14, label: '14d' },
               { value: 30, label: '30d' },
