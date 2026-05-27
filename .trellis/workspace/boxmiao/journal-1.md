@@ -78,3 +78,39 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: 端点统计持久化、UI增强、错误修复、页脚
+
+**Date**: 2026-05-27
+**Task**: 端点统计持久化、UI增强、错误修复、页脚
+**Branch**: `main`
+
+### Summary
+
+修复端点统计重启丢失（stats_anchor新增total_successes/latency_sum_ms列）；添加刷新按钮旋转动画、StatCard点击显示详细数值、Footer页脚组件；修复错误趋势时间范围选择无效和日志状态筛选无效；字符占比圆环数据移入store消除跳动；更新文档和README截图
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `706f1d8` | (see git log) |
+| `8d3d52d` | (see git log) |
+| `e4f39e1` | (see git log) |
+| `e89b9ea` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
