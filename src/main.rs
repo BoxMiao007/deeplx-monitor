@@ -277,6 +277,7 @@ async fn main() {
         .route("/api/requests", get(api::requests))
         .route("/api/health", get(api::health))
         .route("/api/health/check", post(api::health_check))
+        .route("/api/health/check/:name", post(api::health_check_one))
         .route("/api/config", get(api::get_config))
         .route("/api/config", post(api::update_config))
         .route("/api/lang-stats", get(api::lang_stats))

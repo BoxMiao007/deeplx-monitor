@@ -16,6 +16,7 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 
 use crate::config::EndpointConfig;
+use crate::utils::chrono_now;
 
 /// 端点对外暴露的运行时状态快照。
 ///
@@ -39,6 +40,8 @@ pub struct EndpointStatus {
     pub avg_latency_ms: u64,
     /// 最近一次失败的错误描述，恢复后会被清空。
     pub last_error: Option<String>,
+    /// 最近一次健康检查的时间戳（ISO 格式），未检测时为 None。
+    pub last_check_at: Option<String>,
 }
 
 /// 一次手动健康检查（`check_all`）针对单个端点的执行结果。
@@ -78,6 +81,8 @@ struct EndpointState {
     latency_sum_ms: AtomicU64,
     /// 最近一次失败原因；成功后会被清空为 None。
     last_error: RwLock<Option<String>>,
+    /// 最近一次健康检查的时间戳（ISO 格式）。
+    last_check_at: RwLock<Option<String>>,
 }
 
 /// 多端点负载均衡器。
@@ -169,6 +174,7 @@ impl LoadBalancer {
                     total_successes: AtomicU64::new(0),
                     latency_sum_ms: AtomicU64::new(0),
                     last_error: RwLock::new(None),
+                    last_check_at: RwLock::new(None),
                 })
             })
             .collect();
@@ -208,6 +214,7 @@ impl LoadBalancer {
                     total_successes: AtomicU64::new(0),
                     latency_sum_ms: AtomicU64::new(0),
                     last_error: RwLock::new(None),
+                    last_check_at: RwLock::new(None),
                 })
             })
             .collect();
@@ -372,17 +379,17 @@ impl LoadBalancer {
         }
     }
 
-    /// 后台探活：对所有不健康端点发送测试翻译请求，尝试恢复。
+    /// 后台探活：对所有端点发送测试翻译请求，更新健康状态与 `last_check_at`。
     ///
     /// # 探活机制
-    /// 1. 遍历端点列表，跳过已健康的端点。
-    /// 2. 对不健康端点发送一个简短翻译请求（`"hi"` EN→ZH）。
-    /// 3. 若收到 HTTP 2xx 响应：
+    /// 1. 遍历所有端点，逐一发送简短翻译请求（`"hi"` EN→ZH）。
+    /// 2. 若收到 HTTP 2xx 响应：
     ///    - 清零 `consecutive_failures`，标记 `healthy = true`。
     ///    - 累加延迟和请求计数（探活也计入统计）。
-    ///    - 输出恢复日志。
-    /// 4. 若响应非 2xx 或网络错误：仅更新 `last_error`，不改变健康状态
-    ///    （等待下一轮探活再试）。
+    ///    - 若端点此前不健康，输出恢复日志。
+    /// 3. 若响应非 2xx 或网络错误：更新 `last_error`，累加失败计数，
+    ///    达到阈值时标记为不健康。
+    /// 4. 无论成败，均更新 `last_check_at` 时间戳。
     ///
     /// 该方法由 `main.rs` 中的后台定时任务周期性调用。
     ///
@@ -391,10 +398,6 @@ impl LoadBalancer {
     pub async fn probe_unhealthy(&self, http_client: &reqwest::Client) {
         let endpoints = self.endpoints.read().await;
         for ep in endpoints.iter() {
-            if *ep.healthy.read().await {
-                continue;
-            }
-
             let body = serde_json::json!({
                 "text": "hi",
                 "source_lang": "EN",
@@ -406,8 +409,11 @@ impl LoadBalancer {
                 req = req.header("Authorization", format!("Bearer {}", ep.config.api_key));
             }
 
+            let was_healthy = *ep.healthy.read().await;
             let start = Instant::now();
-            match req.send().await {
+            let send_result = req.send().await;
+            *ep.last_check_at.write().await = Some(chrono_now());
+            match send_result {
                 Ok(resp) => {
                     let latency = start.elapsed().as_millis() as u64;
                     if resp.status().is_success() {
@@ -417,14 +423,28 @@ impl LoadBalancer {
                         ep.latency_sum_ms.fetch_add(latency, Ordering::Relaxed);
                         ep.total_requests.fetch_add(1, Ordering::Relaxed);
                         ep.total_successes.fetch_add(1, Ordering::Relaxed);
-                        tracing::info!("Endpoint '{}' recovered", ep.config.name);
+                        if !was_healthy {
+                            tracing::info!("Endpoint '{}' recovered", ep.config.name);
+                        }
                     } else {
-                        *ep.last_error.write().await =
-                            Some(format!("HTTP {}", resp.status().as_u16()));
+                        let error = format!("HTTP {}", resp.status().as_u16());
+                        *ep.last_error.write().await = Some(error);
+                        let mut failures = ep.consecutive_failures.write().await;
+                        *failures += 1;
+                        let max_failures = *self.max_failures.read().await;
+                        if *failures >= max_failures {
+                            *ep.healthy.write().await = false;
+                        }
                     }
                 }
                 Err(e) => {
                     *ep.last_error.write().await = Some(format!("{}", e));
+                    let mut failures = ep.consecutive_failures.write().await;
+                    *failures += 1;
+                    let max_failures = *self.max_failures.read().await;
+                    if *failures >= max_failures {
+                        *ep.healthy.write().await = false;
+                    }
                 }
             }
         }
@@ -470,6 +490,9 @@ impl LoadBalancer {
             let start = Instant::now();
             let result = req.send().await;
             let latency_ms = start.elapsed().as_millis() as u64;
+
+            let now = chrono_now();
+            *ep.last_check_at.write().await = Some(now);
 
             match result {
                 Ok(resp) if resp.status().is_success() => {
@@ -520,6 +543,95 @@ impl LoadBalancer {
         }
 
         results
+    }
+
+    /// 手动探活单个端点，按名称匹配。
+    ///
+    /// 与 `check_all` 类似但只针对一个端点，用于 Web UI 中的"刷新"按钮：
+    /// - 命中端点：发送测试请求，更新该端点的健康状态、`last_check_at`，返回探测结果。
+    /// - 未命中：返回 `None`。
+    ///
+    /// # 参数
+    /// - `http_client`：共享的 reqwest 客户端实例。
+    /// - `source_lang`：探测请求的源语言代码。
+    /// - `target_lang`：探测请求的目标语言代码。
+    /// - `name`：要探测的端点显示名。
+    pub async fn check_one(
+        &self,
+        http_client: &reqwest::Client,
+        source_lang: &str,
+        target_lang: &str,
+        name: &str,
+    ) -> Option<EndpointHealthCheckResult> {
+        let endpoints = self.endpoints.read().await.clone();
+        let (idx, ep) = endpoints
+            .iter()
+            .enumerate()
+            .find(|(_, e)| e.config.name == name)?;
+
+        let body = serde_json::json!({
+            "text": "hi",
+            "source_lang": source_lang,
+            "target_lang": target_lang
+        });
+
+        let mut req = http_client.post(&ep.config.url).json(&body);
+        if !ep.config.api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", ep.config.api_key));
+        }
+
+        let start = Instant::now();
+        let result = req.send().await;
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        let now = chrono_now();
+        *ep.last_check_at.write().await = Some(now);
+
+        let outcome = match result {
+            Ok(resp) if resp.status().is_success() => {
+                ep.total_requests.fetch_add(1, Ordering::Relaxed);
+                ep.total_successes.fetch_add(1, Ordering::Relaxed);
+                ep.latency_sum_ms.fetch_add(latency_ms, Ordering::Relaxed);
+                *ep.consecutive_failures.write().await = 0;
+                *ep.healthy.write().await = true;
+                *ep.last_error.write().await = None;
+                *self.last_known_good.write().await = Some(idx);
+                EndpointHealthCheckResult {
+                    name: ep.config.name.clone(),
+                    ok: true,
+                    latency_ms,
+                    error: None,
+                }
+            }
+            Ok(resp) => {
+                let error = format!("HTTP {}", resp.status().as_u16());
+                ep.total_requests.fetch_add(1, Ordering::Relaxed);
+                *ep.consecutive_failures.write().await += 1;
+                *ep.healthy.write().await = false;
+                *ep.last_error.write().await = Some(error.clone());
+                EndpointHealthCheckResult {
+                    name: ep.config.name.clone(),
+                    ok: false,
+                    latency_ms,
+                    error: Some(error),
+                }
+            }
+            Err(e) => {
+                let error = e.to_string();
+                ep.total_requests.fetch_add(1, Ordering::Relaxed);
+                *ep.consecutive_failures.write().await += 1;
+                *ep.healthy.write().await = false;
+                *ep.last_error.write().await = Some(error.clone());
+                EndpointHealthCheckResult {
+                    name: ep.config.name.clone(),
+                    ok: false,
+                    latency_ms,
+                    error: Some(error),
+                }
+            }
+        };
+
+        Some(outcome)
     }
 
     /// 从数据库恢复端点统计计数器（重启后保持数据连续）。
@@ -605,6 +717,7 @@ impl LoadBalancer {
                 total_successes: successes,
                 avg_latency_ms: avg_latency,
                 last_error: ep.last_error.read().await.clone(),
+                last_check_at: ep.last_check_at.read().await.clone(),
             });
         }
         result

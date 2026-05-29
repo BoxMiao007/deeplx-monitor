@@ -9,6 +9,7 @@ export interface ConfigInfo {
   upstream_url: string
   api_key: string
   auto_refresh_seconds: number
+  probe_interval_secs: number
 }
 
 export interface PeriodStats {
@@ -91,6 +92,7 @@ export interface EndpointStatus {
   total_successes: number
   avg_latency_ms: number
   last_error: string | null
+  last_check_at: string | null
 }
 
 export interface CacheStats {

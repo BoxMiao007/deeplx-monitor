@@ -21,9 +21,10 @@ export function Overview() {
     stats, days, refreshInterval,
     setDays, setRefreshInterval, fetchStats, fetchAll,
   } = useStatsStore()
-  const { endpoints, cacheStats, cacheHitLogs, fetchUpstreamStatus, fetchCacheStats, fetchCacheHitLogs, clearCache, triggerHealthCheck } = useEndpointStore()
+  const { endpoints, cacheStats, cacheHitLogs, fetchUpstreamStatus, fetchCacheStats, fetchCacheHitLogs, clearCache, triggerHealthCheck, triggerEndpointHealthCheck } = useEndpointStore()
   const [confirmClear, setConfirmClear] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [checkingEp, setCheckingEp] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [chartLabels, setChartLabels] = useState<string[]>([])
   const [totalLine, setTotalLine] = useState<TrendDataset>({ label: '', data: [] })
@@ -70,18 +71,24 @@ export function Overview() {
         const epResults = await Promise.all(
           epList.map(ep => apiFetch<ChartDataType>(`/api/chart?endpoint=${encodeURIComponent(ep.name)}&${daysParam}`))
         )
-        bars = epList.map((ep, i) => ({
-          label: ep.name,
-          data: useHourly
-            ? epResults[i]?.hourly.map(h => h.count) ?? []
-            : epResults[i]?.daily.map(d => d.count) ?? [],
-        }))
-        charBars = epList.map((ep, i) => ({
-          label: ep.name,
-          data: useHourly
-            ? epResults[i]?.hourly.map(h => h.chars) ?? []
-            : epResults[i]?.daily.map(d => d.chars) ?? [],
-        }))
+        bars = epList.map((ep, i) => {
+          const countMap = new Map<string, number>()
+          if (useHourly) {
+            epResults[i]?.hourly.forEach(h => countMap.set(h.hour, h.count))
+          } else {
+            epResults[i]?.daily.forEach(d => countMap.set(d.day, d.count))
+          }
+          return { label: ep.name, data: labels.map(l => countMap.get(l) ?? 0) }
+        })
+        charBars = epList.map((ep, i) => {
+          const charMap = new Map<string, number>()
+          if (useHourly) {
+            epResults[i]?.hourly.forEach(h => charMap.set(h.hour, h.chars))
+          } else {
+            epResults[i]?.daily.forEach(d => charMap.set(d.day, d.chars))
+          }
+          return { label: ep.name, data: labels.map(l => charMap.get(l) ?? 0) }
+        })
       }
 
       setChartLabels(labels)
@@ -138,6 +145,12 @@ export function Overview() {
     setChecking(false)
   }
 
+  const onCheckSingleEndpoint = async (name: string) => {
+    setCheckingEp(name)
+    await triggerEndpointHealthCheck(name)
+    setCheckingEp(null)
+  }
+
   const successRate = stats
     ? stats.total_requests > 0
       ? ((stats.total_requests - (stats.health.status === 'error' ? 1 : 0)) / stats.total_requests * 100).toFixed(1)
@@ -162,6 +175,12 @@ export function Overview() {
     if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
     if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`
     return `${bytes} B`
+  }
+
+  const formatCheckTime = (iso: string | null) => {
+    if (!iso) return t('overview.never')
+    const d = new Date(iso)
+    return d.toLocaleTimeString()
   }
 
   return (
@@ -261,10 +280,30 @@ export function Overview() {
           {endpoints.map((ep) => (
             <div key={ep.name} className={styles.epCard}>
               <div className={styles.epCardHeader}>
-                <span className={`${styles.badge} ${ep.healthy ? styles.online : styles.offline}`}>
-                  {ep.healthy ? t('endpoints.online') : t('endpoints.offline')}
-                </span>
-                <span className={styles.epName}>{ep.name}</span>
+                <div className={styles.epCardHeaderLeft}>
+                  <span className={`${styles.badge} ${ep.healthy ? styles.online : styles.offline}`}>
+                    {ep.healthy ? t('endpoints.online') : t('endpoints.offline')}
+                  </span>
+                  <span className={styles.epName}>{ep.name}</span>
+                </div>
+                <div className={styles.epCardHeaderRight}>
+                  <div className={styles.epCheckMeta}>
+                    <span className={styles.epCheckLine}>
+                      <span className={styles.epCheckLabel}>{t('overview.lastCheck')}</span>
+                      <span className={styles.epCheckValue}>{formatCheckTime(ep.last_check_at)}</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.epRefreshBtn}
+                    onClick={() => onCheckSingleEndpoint(ep.name)}
+                    disabled={checkingEp === ep.name}
+                    title={t('endpoints.healthCheck')}
+                    aria-label={t('endpoints.healthCheck')}
+                  >
+                    <svg className={checkingEp === ep.name ? styles.spinning : ''} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  </button>
+                </div>
               </div>
               <div className={styles.epStats}>
                 <div className={styles.epStat}>

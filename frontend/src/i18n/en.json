@@ -16,6 +16,8 @@
     "cumulative": "Cumulative",
     "trend": "Trend",
     "endpointHealth": "Endpoint Health",
+    "lastCheck": "Last Check",
+    "never": "Never",
     "range": "Range",
     "today": "Today",
     "days7": "7 Days",

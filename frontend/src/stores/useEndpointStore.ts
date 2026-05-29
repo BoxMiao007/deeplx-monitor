@@ -15,6 +15,7 @@ interface EndpointState {
   fetchCacheHitLogs: () => Promise<void>
   clearCache: () => Promise<boolean>
   triggerHealthCheck: () => Promise<HealthStatus | null>
+  triggerEndpointHealthCheck: (name: string) => Promise<EndpointStatus | null>
 }
 
 export const useEndpointStore = create<EndpointState>((set, get) => ({
@@ -78,6 +79,21 @@ export const useEndpointStore = create<EndpointState>((set, get) => ({
       const endpoints = await apiFetch<EndpointStatus[]>('/api/upstream/status')
       set({ endpoints })
       return health
+    } catch {
+      return null
+    }
+  },
+
+  triggerEndpointHealthCheck: async (name: string) => {
+    try {
+      const updated = await apiPost<EndpointStatus>(
+        `/api/health/check/${encodeURIComponent(name)}`
+      )
+      const { endpoints } = get()
+      set({
+        endpoints: endpoints.map(ep => (ep.name === name ? updated : ep)),
+      })
+      return updated
     } catch {
       return null
     }

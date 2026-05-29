@@ -76,7 +76,7 @@ export function ErrorTrend({ data, height = 220 }: ErrorTrendProps) {
         },
         scales: {
           x: { grid: { display: false }, ticks: { color: tickColor, maxTicksLimit: 8, font: { size: 11 } } },
-          y: { beginAtZero: true, max: 100, ticks: { color: tickColor, callback: (v) => `${v}%`, font: { size: 11 } } },
+          y: { beginAtZero: true, ticks: { color: tickColor, callback: (v) => `${v}%`, font: { size: 11 } } },
         },
       },
     })

@@ -79,6 +79,8 @@ pub struct ConfigInfo {
     pub api_key: String,
     /// 前端自动刷新间隔（秒）
     pub auto_refresh_seconds: u64,
+    /// 后台健康探测间隔（秒）
+    pub probe_interval_secs: u64,
 }
 
 /// 统计查询参数
@@ -118,6 +120,7 @@ pub async fn stats(
         .map(|e| e.api_key.clone())
         .unwrap_or_default();
     let auto_refresh = config.monitor.auto_refresh_seconds;
+    let probe_interval = config.upstream.probe_interval_secs;
     drop(config);
 
     let db = state.db.clone();
@@ -161,6 +164,7 @@ pub async fn stats(
             upstream_url,
             api_key,
             auto_refresh_seconds: auto_refresh,
+            probe_interval_secs: probe_interval,
         },
         period: PeriodStats {
             today_requests,
@@ -343,7 +347,37 @@ pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     Json(health).into_response()
 }
 
-// --- 完整配置 API 结构体 ---
+/// POST /api/health/check/:name — 主动探测单个上游端点
+///
+/// 向指定端点发送测试翻译请求，更新该端点的健康状态和 `last_check_at`。
+/// 返回该端点的最新状态快照。
+pub async fn health_check_one(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let config = state.config.read().await.clone();
+    let source_lang = config.health_check.source_lang.clone();
+    let target_lang = config.health_check.target_lang.clone();
+    drop(config);
+
+    let result = state
+        .load_balancer
+        .check_one(&state.http_client, &source_lang, &target_lang, &name)
+        .await;
+
+    match result {
+        Some(_) => {
+            let status = state.load_balancer.status().await;
+            let ep_status = status.into_iter().find(|s| s.name == name);
+            Json(ep_status).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Endpoint not found"})),
+        )
+            .into_response(),
+    }
+}
 // 以下结构体用于 GET/POST /api/config 的序列化/反序列化，
 // 与 config.rs 中的内部配置结构一一对应但解耦（API 层独立定义）。
 
