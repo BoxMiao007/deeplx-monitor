@@ -125,7 +125,7 @@ export function Settings() {
       <Card>
         <h3 className={styles.sectionTitle}>{t('settings.monitor')}</h3>
         <div className={styles.fieldRow}>
-          <Input label={t('settings.logRetention')} type="number" value={draft.monitor.max_log_entries} onChange={(e) => setDraft({ ...draft, monitor: { ...draft.monitor, max_log_entries: Number(e.target.value) } })} />
+          <Input label={t('settings.logRetention')} type="number" value={draft.monitor.log_retention_days} onChange={(e) => setDraft({ ...draft, monitor: { ...draft.monitor, log_retention_days: Number(e.target.value) } })} />
           <Input label={t('settings.autoRefresh')} type="number" value={draft.monitor.auto_refresh_seconds} onChange={(e) => setDraft({ ...draft, monitor: { ...draft.monitor, auto_refresh_seconds: Number(e.target.value) } })} />
         </div>
       </Card>

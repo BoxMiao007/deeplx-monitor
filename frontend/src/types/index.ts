@@ -134,7 +134,7 @@ export interface FullProxyInfo {
 
 export interface FullMonitorInfo {
   auto_refresh_seconds: number
-  max_log_entries: number
+  log_retention_days: number
 }
 
 export interface FullHealthCheckInfo {

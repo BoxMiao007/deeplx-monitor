@@ -24,7 +24,7 @@ npm run build      # builds to ../dist/
 # Backend (run from project root)
 cargo build        # compile
 cargo run          # start server on 127.0.0.1:55551
-cargo test         # run 64 unit tests
+cargo test         # run 69 unit tests
 cargo build --release
 ```
 
@@ -47,7 +47,13 @@ Client ──POST /translate──► proxy.rs ──► LoadBalancer ──► 
 - **`main.rs`**: Axum router setup, SPA/asset handlers, background tasks (log cleanup, endpoint probing, config file watcher). Listens on address from `config.toml` `[proxy]` section.
 - **`proxy.rs`**: `/translate` handler — checks cache, selects upstream via LoadBalancer, forwards request, measures latency, logs result to DB.
 - **`api.rs`**: All `/api/*` endpoints — stats, charts, request logs, health check, full config CRUD, upstream status, cache stats, analytics (heatmap, error trend), data export.
-- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Tables: `translation_logs` (per-request rows) and `stats_anchor` (cumulative request/char counters + cache hit/miss counters + per-endpoint success/latency counters). Totals read from `stats_anchor` (not affected by log cleanup). Endpoint stats restored to LoadBalancer on startup.
+- **`db.rs`**: SQLite wrapper with `Mutex<Connection>`. Four tables forming a layered storage model:
+  - **`translation_logs`** — 明细表，每次翻译一行。受 `log_retention_days` 滑动窗口清理（默认 30 天）。仅用于"日志"标签页的明细列表、CSV/JSON 导出、高分辨率时间轴（`get_timeline_data`，672 桶/天）。
+  - **`stats_anchor`** — 永久累计计数器，全局行（`endpoint_name = ''`）+ 每端点行。存储 total_requests / total_chars / cache_hits/misses / total_successes / latency_sum_ms。永不清理，重启后恢复 LoadBalancer 端点统计。
+  - **`hourly_stats`** — 小时桶聚合表（永久保留），主键 `(bucket_hour TEXT 'YYYY-MM-DD HH:00', endpoint_name)`。所有趋势图（请求/字符/错误趋势、热力图、迷你曲线）都从这张表查询，**与日志清理完全解耦**。
+  - **`hourly_lang_stats`** — 小时桶 × 语言 × role（'source'/'target'）聚合表，永久保留。所有语言统计图表数据源。
+- **三层写入**：每次 `log_translation()` 同事务三写——translation_logs 明细 + stats_anchor 累计 + hourly_stats/hourly_lang_stats 小时桶（全局行 + 端点行 + source/target 语言行）。`INSERT ... ON CONFLICT DO UPDATE` 原子递增。
+- **迁移补种**：`init()` 检测到 `hourly_stats` 为空但 `translation_logs` 有数据时，用 `INSERT INTO ... SELECT GROUP BY strftime('%Y-%m-%d %H:00', created_at)` 全量补种，老数据库零数据丢失升级。
 - **`state.rs`**: `AppState` holds `Arc<RwLock<Config>>`, `Arc<Database>`, `Arc<RwLock<HealthStatus>>`, `Arc<LoadBalancer>`, `Arc<TranslationCache>`, `reqwest::Client`.
 - **`config.rs`**: TOML config with sections: `[upstream]`, `[proxy]`, `[monitor]`, `[health_check]`, `[cache]`, `[demo]`. Includes `watch_config_file()` for hot-reload via `notify`.
 - **`upstream.rs`**: Multi-endpoint load balancer (round-robin + failover). Supports runtime `reload()` when config changes.
@@ -175,7 +181,7 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **deeplx-monitor** (1153 symbols, 2064 relationships, 65 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **deeplx-monitor** (1154 symbols, 2088 relationships, 65 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
