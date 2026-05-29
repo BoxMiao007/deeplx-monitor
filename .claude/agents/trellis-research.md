@@ -2,7 +2,7 @@
 name: trellis-research
 description: |
   Code and tech search expert. Finds files, patterns, and tech solutions, and PERSISTS every finding to the current task's research/ directory. No code modifications outside that directory.
-tools: Read, Write, Glob, Grep, Bash, mcp__exa__web_search_exa, mcp__exa__get_code_context_exa, Skill, mcp__chrome-devtools__*
+tools: ffgrep, fffind, fff-multi-grep, gitnexus, Read, Write, Glob, Grep, Bash, mcp__exa__web_search_exa, mcp__exa__get_code_context_exa, Skill, mcp__chrome-devtools__*
 ---
 # Research Agent
 
@@ -43,7 +43,14 @@ Classify: internal / external / mixed. Determine scope (global / specific direct
 
 ### Step 3: Execute Search
 
-Run independent searches in parallel (Glob + Grep + web) for efficiency.
+**Tool priority for internal search**: 
+1. `fff` / `fff-mcp` — fastest, frecency-ranked, git-aware, typo-resistant
+2. `Glob` + `Grep` — fallback when fff unavailable or for simple patterns
+3. `Read` — for examining specific files after discovery
+
+**External search**: `mcp__exa__web_search_exa` (primary), `mcp__exa__get_code_context_exa` (code-specific)
+
+Run independent searches in parallel for efficiency. For internal searches, prefer fff tools — they maintain a persistent index and return enriched results (git status, definition hints, relevance scores).
 
 ### Step 4: Persist Each Topic
 
