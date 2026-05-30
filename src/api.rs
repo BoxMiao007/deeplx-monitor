@@ -171,13 +171,10 @@ pub async fn stats(
             TimeRange::Today => db.get_today_stats_filtered(ep).unwrap_or((0, 0)),
             TimeRange::Last24Hours => db.get_period_stats_filtered(1, ep).unwrap_or((0, 0)),
             TimeRange::Days(days) => db.get_period_stats_filtered(days, ep).unwrap_or((0, 0)),
-            TimeRange::All => {
-                if ep.is_some() {
-                    db.get_endpoint_totals(ep.unwrap()).unwrap_or((0, 0))
-                } else {
-                    db.get_current_log_totals().unwrap_or((0, 0))
-                }
-            }
+            TimeRange::All => match ep {
+                Some(endpoint) => db.get_endpoint_totals(endpoint).unwrap_or((0, 0)),
+                None => db.get_current_log_totals().unwrap_or((0, 0)),
+            },
         };
         (today, week, month, total)
     })
