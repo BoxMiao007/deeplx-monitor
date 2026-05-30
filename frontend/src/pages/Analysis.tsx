@@ -9,30 +9,31 @@ import { ErrorTrend } from '@/components/charts/ErrorTrend'
 import { DonutChart } from '@/components/charts/DonutChart'
 import { EmptyState } from '@/components/ui/EmptyState/EmptyState'
 import { LangFlag } from '@/components/shared/LangFlag'
+import type { HeatmapRange } from '@/utils/timeRange'
 import styles from './Analysis.module.scss'
 
 export function Analysis() {
   const { t } = useTranslation()
   const {
-    errorTrend, langStats, days,
+    errorTrend, langStats, range,
     fetchErrorTrend, fetchLangStats,
   } = useStatsStore()
   const { endpoints, epChars, fetchUpstreamStatus, fetchEpChars } = useEndpointStore()
-  const [heatmapDays, setHeatmapDays] = useState(1)
+  const [heatmapRange, setHeatmapRange] = useState<HeatmapRange>('today')
   const [errorDays, setErrorDays] = useState(1)
 
   useEffect(() => {
     fetchErrorTrend(1, 'hourly')
-    fetchLangStats(days)
+    fetchLangStats(range)
     fetchUpstreamStatus()
-  }, [fetchErrorTrend, fetchLangStats, fetchUpstreamStatus, days])
+  }, [fetchErrorTrend, fetchLangStats, fetchUpstreamStatus, range])
 
   useEffect(() => {
     fetchEpChars()
   }, [endpoints, fetchEpChars])
 
   const onHeatmapDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setHeatmapDays(Number(e.target.value))
+    setHeatmapRange(e.target.value as HeatmapRange)
   }
 
   const onErrorDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -101,15 +102,15 @@ export function Analysis() {
         <div className={styles.cardHeader}>
           <h3>{t('analysis.heatmap')}</h3>
           <Select
-            value={heatmapDays}
+            value={heatmapRange}
             onChange={onHeatmapDaysChange}
             options={[
-              { value: 1, label: t('overview.today') },
-              { value: 7, label: t('overview.days7') },
+              { value: 'today', label: t('overview.today') },
+              { value: '7d', label: t('overview.days7') },
             ]}
           />
         </div>
-        <Heatmap days={heatmapDays} />
+        <Heatmap range={heatmapRange} />
       </Card>
 
       <Card>

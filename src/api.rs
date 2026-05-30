@@ -22,6 +22,36 @@ use crate::db::{DailyStat, HeatmapCell, HourlyStat};
 use crate::state::{AppState, HealthStatus};
 use crate::utils::chrono_now;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimeRange {
+    Today,
+    Last24Hours,
+    Days(u32),
+    All,
+}
+
+fn parse_time_range(range: Option<&str>, days: Option<u32>, default: TimeRange) -> TimeRange {
+    let parsed_range = range.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.eq_ignore_ascii_case("today") {
+            Some(TimeRange::Today)
+        } else if trimmed.eq_ignore_ascii_case("24h") || trimmed.eq_ignore_ascii_case("last24h") {
+            Some(TimeRange::Last24Hours)
+        } else if trimmed.eq_ignore_ascii_case("all") {
+            Some(TimeRange::All)
+        } else {
+            trimmed
+                .strip_suffix('d')
+                .and_then(|num| num.parse::<u32>().ok())
+                .map(TimeRange::Days)
+        }
+    });
+
+    parsed_range
+        .or_else(|| days.map(TimeRange::Days))
+        .unwrap_or(default)
+}
+
 /// 返回编译时嵌入的版本号
 pub async fn version() -> impl IntoResponse {
     Json(serde_json::json!({
@@ -35,7 +65,8 @@ pub async fn version() -> impl IntoResponse {
 /// 总量数据来源：
 /// - 无筛选时：从 `stats_anchor` 表读取（不受日志清理影响）
 /// - 按端点筛选时：从 `stats_anchor` 的 per-endpoint 计数器读取
-/// - 指定 `days` 时：从 `translation_logs` 表按时间范围聚合
+/// - 指定 `range=today` 时：从本地当天 00:00 开始聚合
+/// - 指定 `range=24h` 或 `days` 时：按滚动时间范围聚合
 #[derive(Debug, Serialize)]
 pub struct StatsResponse {
     /// 累计总请求数
@@ -52,8 +83,7 @@ pub struct StatsResponse {
 
 /// 分时段统计（今日/本周/本月的请求数和字符数）
 ///
-/// 数据来源：`translation_logs` 表按 `created_at` 时间范围聚合。
-/// 注意：日志清理后，历史时段数据可能不完整。
+/// 数据来源：`hourly_stats` 汇总表按时间范围聚合，不受日志清理影响。
 #[derive(Debug, Serialize)]
 pub struct PeriodStats {
     /// 今日请求数
@@ -86,7 +116,9 @@ pub struct ConfigInfo {
 /// 统计查询参数
 #[derive(Debug, Deserialize)]
 pub struct StatsQuery {
-    /// 指定天数范围（可选）；若提供则 total 从日志按天数聚合
+    /// 显式时间范围：today / 24h / 7d / 30d / 90d / all
+    pub range: Option<String>,
+    /// 指定天数范围（可选）；向后兼容旧客户端，等价于滚动 N 天
     pub days: Option<u32>,
     /// 按端点名称筛选（可选）；若提供则仅统计该端点的数据
     pub endpoint: Option<String>,
@@ -97,11 +129,11 @@ pub struct StatsQuery {
 /// 返回累计总量、分时段统计、健康状态和基础配置。
 ///
 /// 总量（total_requests / total_chars）的数据来源逻辑：
-/// 1. 指定 `days` 参数 → 从 `translation_logs` 按天数聚合
-/// 2. 指定 `endpoint` 但无 `days` → 从 `stats_anchor` 读取该端点的累计计数
-/// 3. 两者都未指定 → 从 `stats_anchor` 读取全局累计计数（不受日志清理影响）
+/// 1. `range=today` → 从本地当天 00:00 起聚合
+/// 2. `range=24h` 或 `days` 参数 → 按滚动时间范围聚合
+/// 3. `range=all` / 未指定时间范围 → 从 `stats_anchor` 读取累计计数
 ///
-/// 分时段统计（today/week/month）始终从 `translation_logs` 聚合。
+/// 分时段统计（today/week/month）从 `hourly_stats` 聚合。
 pub async fn stats(
     State(state): State<AppState>,
     Query(query): Query<StatsQuery>,
@@ -124,7 +156,7 @@ pub async fn stats(
     drop(config);
 
     let db = state.db.clone();
-    let query_days = query.days;
+    let time_range = parse_time_range(query.range.as_deref(), query.days, TimeRange::All);
     let endpoint_filter = query.endpoint.clone().unwrap_or_default();
     let db_result = tokio::task::spawn_blocking(move || {
         let ep = if endpoint_filter.is_empty() {
@@ -132,15 +164,20 @@ pub async fn stats(
         } else {
             Some(endpoint_filter.as_str())
         };
-        let today = db.get_period_stats_filtered(1, ep).unwrap_or((0, 0));
+        let today = db.get_today_stats_filtered(ep).unwrap_or((0, 0));
         let week = db.get_period_stats_filtered(7, ep).unwrap_or((0, 0));
         let month = db.get_period_stats_filtered(30, ep).unwrap_or((0, 0));
-        let total = if let Some(days) = query_days {
-            db.get_period_stats_filtered(days, ep).unwrap_or((0, 0))
-        } else if ep.is_some() {
-            db.get_endpoint_totals(ep.unwrap()).unwrap_or((0, 0))
-        } else {
-            db.get_current_log_totals().unwrap_or((0, 0))
+        let total = match time_range {
+            TimeRange::Today => db.get_today_stats_filtered(ep).unwrap_or((0, 0)),
+            TimeRange::Last24Hours => db.get_period_stats_filtered(1, ep).unwrap_or((0, 0)),
+            TimeRange::Days(days) => db.get_period_stats_filtered(days, ep).unwrap_or((0, 0)),
+            TimeRange::All => {
+                if ep.is_some() {
+                    db.get_endpoint_totals(ep.unwrap()).unwrap_or((0, 0))
+                } else {
+                    db.get_current_log_totals().unwrap_or((0, 0))
+                }
+            }
         };
         (today, week, month, total)
     })
@@ -181,9 +218,9 @@ pub async fn stats(
 /// 图表数据响应体
 #[derive(Debug, Serialize)]
 pub struct ChartResponse {
-    /// 最近24小时的逐小时统计
+    /// 按当前范围返回的逐小时统计（today / 24h 使用）
     pub hourly: Vec<HourlyStat>,
-    /// 最近 N 天的逐日统计
+    /// 按当前范围返回的逐日统计（7d / 30d / 90d / all 使用）
     pub daily: Vec<DailyStat>,
 }
 
@@ -192,13 +229,15 @@ pub struct ChartResponse {
 pub struct ChartQuery {
     /// 按端点名称筛选（可选）
     pub endpoint: Option<String>,
-    /// 日统计的天数范围，默认30天
+    /// 显式时间范围：today / 24h / 7d / 30d / 90d / all
+    pub range: Option<String>,
+    /// 日统计的天数范围，默认30天；向后兼容旧客户端
     pub days: Option<u32>,
 }
 
 /// GET /api/chart — 获取图表数据（小时维度 + 日维度）
 ///
-/// 返回最近24小时的逐小时统计和最近 N 天的逐日统计。
+/// 返回按显式范围筛选的小时维度和日维度数据。
 /// 支持按端点筛选。
 pub async fn chart(
     State(state): State<AppState>,
@@ -206,16 +245,31 @@ pub async fn chart(
 ) -> impl IntoResponse {
     let db = state.db.clone();
     let endpoint_filter = query.endpoint.unwrap_or_default();
-    let days = query.days.unwrap_or(30);
+    let time_range = parse_time_range(query.range.as_deref(), query.days, TimeRange::Days(30));
     let (hourly, daily) = tokio::task::spawn_blocking(move || {
         let ep = if endpoint_filter.is_empty() {
             None
         } else {
             Some(endpoint_filter.as_str())
         };
-        let h = db.get_hourly_stats_filtered(24, ep).unwrap_or_default();
-        let d = db.get_daily_stats_filtered(days, ep).unwrap_or_default();
-        (h, d)
+        match time_range {
+            TimeRange::Today => (
+                db.get_today_hourly_stats_filtered(ep).unwrap_or_default(),
+                db.get_today_daily_stats_filtered(ep).unwrap_or_default(),
+            ),
+            TimeRange::Last24Hours => (
+                db.get_hourly_stats_filtered(24, ep).unwrap_or_default(),
+                db.get_daily_stats_filtered(1, ep).unwrap_or_default(),
+            ),
+            TimeRange::Days(days) => (
+                db.get_hourly_stats_filtered(24, ep).unwrap_or_default(),
+                db.get_daily_stats_filtered(days, ep).unwrap_or_default(),
+            ),
+            TimeRange::All => (
+                db.get_hourly_stats_filtered(24, ep).unwrap_or_default(),
+                db.get_daily_stats_filtered(90, ep).unwrap_or_default(),
+            ),
+        }
     })
     .await
     .unwrap_or_default();
@@ -625,7 +679,9 @@ pub async fn update_config(
 /// 语言统计查询参数
 #[derive(Debug, Deserialize)]
 pub struct LangStatsQuery {
-    /// 天数范围（可选）；若提供则仅统计该时间段内的语言分布
+    /// 显式时间范围：today / 24h / 7d / 30d / 90d / all
+    pub range: Option<String>,
+    /// 天数范围（可选）；向后兼容旧客户端，等价于滚动 N 天
     pub days: Option<u32>,
     /// 按端点名称筛选（可选）
     pub endpoint: Option<String>,
@@ -634,13 +690,13 @@ pub struct LangStatsQuery {
 /// GET /api/lang-stats — 获取语言对使用统计
 ///
 /// 返回各源语言→目标语言组合的请求数和字符数。
-/// 支持按天数范围和端点筛选。
+/// 支持按显式时间范围和端点筛选。
 pub async fn lang_stats(
     State(state): State<AppState>,
     Query(query): Query<LangStatsQuery>,
 ) -> impl IntoResponse {
     let db = state.db.clone();
-    let days = query.days;
+    let time_range = parse_time_range(query.range.as_deref(), query.days, TimeRange::All);
     let endpoint_filter = query.endpoint.unwrap_or_default();
     let stats = tokio::task::spawn_blocking(move || {
         let ep = if endpoint_filter.is_empty() {
@@ -648,11 +704,15 @@ pub async fn lang_stats(
         } else {
             Some(endpoint_filter.as_str())
         };
-        if let Some(d) = days {
-            db.get_lang_stats_by_days_filtered(d, ep)
-                .unwrap_or_default()
-        } else {
-            db.get_lang_stats_filtered(ep).unwrap_or_default()
+        match time_range {
+            TimeRange::Today => db.get_today_lang_stats_filtered(ep).unwrap_or_default(),
+            TimeRange::Last24Hours => db
+                .get_lang_stats_by_days_filtered(1, ep)
+                .unwrap_or_default(),
+            TimeRange::Days(d) => db
+                .get_lang_stats_by_days_filtered(d, ep)
+                .unwrap_or_default(),
+            TimeRange::All => db.get_lang_stats_filtered(ep).unwrap_or_default(),
         }
     })
     .await
@@ -781,24 +841,30 @@ pub async fn heatmap(
 /// 时间线查询参数
 #[derive(Debug, Deserialize)]
 pub struct TimelineQuery {
-    /// 数据范围天数，默认7天
+    /// 显式时间范围：today / 24h / 7d / 30d / 90d
+    pub range: Option<String>,
+    /// 数据范围天数，默认7天；向后兼容旧客户端
     pub days: Option<u32>,
 }
 
 /// GET /api/analytics/timeline — 获取翻译活动时间线
 ///
-/// 返回指定天数内的活动块数据，用于前端时间线可视化。
+/// 返回指定时间范围内的活动块数据，用于前端热力图可视化。
 pub async fn timeline(
     State(state): State<AppState>,
     Query(query): Query<TimelineQuery>,
 ) -> impl IntoResponse {
-    let days = query.days.unwrap_or(7);
+    let time_range = parse_time_range(query.range.as_deref(), query.days, TimeRange::Days(7));
     let db = state.db.clone();
 
-    let blocks =
-        tokio::task::spawn_blocking(move || db.get_timeline_data(days).unwrap_or_default())
-            .await
-            .unwrap_or_default();
+    let blocks = tokio::task::spawn_blocking(move || match time_range {
+        TimeRange::Today => db.get_timeline_data_today().unwrap_or_default(),
+        TimeRange::Last24Hours => db.get_timeline_data(1).unwrap_or_default(),
+        TimeRange::Days(days) => db.get_timeline_data(days).unwrap_or_default(),
+        TimeRange::All => db.get_timeline_data(30).unwrap_or_default(),
+    })
+    .await
+    .unwrap_or_default();
 
     Json(blocks).into_response()
 }

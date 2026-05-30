@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { apiFetch } from '@/hooks/useApi'
+import { timeRangeQuery, type TimeRange } from '@/utils/timeRange'
 import type { StatsResponse, ChartData, LangStat, LangHourlyUsage, HeatmapResponse, ErrorTrendPoint } from '@/types'
 
 interface StatsState {
@@ -12,20 +13,20 @@ interface StatsState {
   errorTrend: ErrorTrendPoint[]
   loading: boolean
   error: string | null
-  days: number | null
+  range: TimeRange
   refreshInterval: number
   appVersion: string
 
-  setDays: (days: number | null) => void
+  setRange: (range: TimeRange) => void
   setRefreshInterval: (seconds: number) => void
-  fetchStats: (days?: number | null, endpoint?: string) => Promise<void>
-  fetchChart: (endpoint?: string) => Promise<void>
-  fetchLangStats: (days?: number | null) => Promise<void>
+  fetchStats: (range?: TimeRange, endpoint?: string) => Promise<void>
+  fetchChart: (range?: TimeRange, endpoint?: string) => Promise<void>
+  fetchLangStats: (range?: TimeRange) => Promise<void>
   fetchLangHourlyStats: (days?: number) => Promise<void>
   fetchHeatmap: (view?: string, days?: number) => Promise<void>
   fetchErrorTrend: (days?: number, granularity?: string) => Promise<void>
   fetchVersion: () => Promise<void>
-  fetchAll: (days?: number | null) => Promise<void>
+  fetchAll: (range?: TimeRange) => Promise<void>
 }
 
 export const useStatsStore = create<StatsState>()(
@@ -39,18 +40,18 @@ export const useStatsStore = create<StatsState>()(
   errorTrend: [],
   loading: false,
   error: null,
-  days: 1,
+  range: 'today',
   refreshInterval: 0,
   appVersion: '',
 
-  setDays: (days) => set({ days }),
+  setRange: (range) => set({ range }),
   setRefreshInterval: (seconds) => set({ refreshInterval: seconds }),
 
-  fetchStats: async (days, endpoint) => {
+  fetchStats: async (range, endpoint) => {
     try {
       const params = new URLSearchParams()
-      const d = days ?? get().days
-      if (d !== null) params.set('days', String(d))
+      const r = range ?? get().range
+      new URLSearchParams(timeRangeQuery(r)).forEach((value, key) => params.set(key, value))
       if (endpoint) params.set('endpoint', endpoint)
       const query = params.toString()
       const data = await apiFetch<StatsResponse>(query ? `/api/stats?${query}` : '/api/stats')
@@ -60,21 +61,21 @@ export const useStatsStore = create<StatsState>()(
     }
   },
 
-  fetchChart: async (endpoint) => {
+  fetchChart: async (range, endpoint) => {
     try {
-      const params = endpoint ? `?endpoint=${endpoint}` : ''
-      const data = await apiFetch<ChartData>(`/api/chart${params}`)
+      const params = new URLSearchParams(timeRangeQuery(range ?? get().range))
+      if (endpoint) params.set('endpoint', endpoint)
+      const data = await apiFetch<ChartData>(`/api/chart?${params.toString()}`)
       set({ chartData: data })
     } catch (e) {
       set({ error: (e as Error).message })
     }
   },
 
-  fetchLangStats: async (days) => {
+  fetchLangStats: async (range) => {
     try {
-      const d = days ?? get().days
-      const params = d !== null ? `?days=${d}` : ''
-      const data = await apiFetch<LangStat[]>(`/api/lang-stats${params}`)
+      const params = timeRangeQuery(range ?? get().range)
+      const data = await apiFetch<LangStat[]>(`/api/lang-stats?${params}`)
       set({ langStats: data })
     } catch (e) {
       set({ error: (e as Error).message })
@@ -118,19 +119,19 @@ export const useStatsStore = create<StatsState>()(
     } catch {}
   },
 
-  fetchAll: async (days) => {
+  fetchAll: async (range) => {
     set({ loading: true })
-    const d = days ?? get().days
+    const r = range ?? get().range
     await Promise.all([
-      get().fetchStats(d),
-      get().fetchChart(),
+      get().fetchStats(r),
+      get().fetchChart(r),
     ])
     set({ loading: false })
   },
     }),
     {
       name: 'stats-preferences',
-      partialize: (state) => ({ refreshInterval: state.refreshInterval, days: state.days }),
+      partialize: (state) => ({ refreshInterval: state.refreshInterval, range: state.range }),
     }
   )
 )

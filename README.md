@@ -149,9 +149,12 @@ seed = 20260511
 | POST | `/api/cache/clear` | 清空缓存 |
 | GET | `/api/cache/hits` | 缓存命中日志（最近 100 条） |
 | GET | `/api/analytics/heatmap` | 活动热力图 |
+| GET | `/api/analytics/timeline` | 活动时间线 |
 | GET | `/api/analytics/error-trend` | 错误率趋势 |
 | GET | `/api/version` | 获取版本号 |
 | GET | `/api/export` | 数据导出（CSV/JSON） |
+
+时间范围类接口（`/api/stats`、`/api/chart`、`/api/lang-stats`、`/api/analytics/timeline`）支持 `range=today|24h|7d|30d|90d|all`。其中 `today` 按本地当天 00:00 起算，`24h` 保留滚动过去 24 小时语义；旧版 `days=N` 参数仍可用于滚动 N 天查询。
 
 ## Docker
 

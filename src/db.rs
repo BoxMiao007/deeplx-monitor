@@ -669,6 +669,22 @@ impl Database {
         })
     }
 
+    /// 查询本地自然日开始以来的请求统计，支持按端点过滤。
+    ///
+    /// `今天` 的业务语义是本地当天 00:00 到当前时间，不是滚动 24 小时。
+    pub fn get_today_stats_filtered(&self, endpoint: Option<&str>) -> SqliteResult<(i64, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let ep_filter = endpoint.unwrap_or("");
+        let mut stmt = conn.prepare_cached(
+            "SELECT COALESCE(SUM(request_count), 0), COALESCE(SUM(source_chars_sum), 0) FROM hourly_stats
+             WHERE bucket_hour >= strftime('%Y-%m-%d %H:00', datetime('now', 'localtime', 'start of day'))
+               AND endpoint_name = ?1"
+        )?;
+        stmt.query_row(params![ep_filter], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })
+    }
+
     /// 分页查询翻译请求日志，支持按端点和状态过滤。
     ///
     /// 结果按 `id DESC` 排序（最新的在前），支持动态组合 WHERE 条件。
@@ -1175,6 +1191,38 @@ impl Database {
         rows.collect()
     }
 
+    /// 查询本地自然日开始以来的按小时统计数据，支持按端点过滤。
+    ///
+    /// 用于“今天”范围的小时趋势图，起点是本地当天 00:00，而不是滚动 24 小时。
+    pub fn get_today_hourly_stats_filtered(
+        &self,
+        endpoint: Option<&str>,
+    ) -> SqliteResult<Vec<HourlyStat>> {
+        let conn = self.conn.lock().unwrap();
+        let ep_filter = endpoint.unwrap_or("");
+        let mut stmt = conn.prepare_cached(
+            "SELECT bucket_hour,
+                    request_count,
+                    source_chars_sum,
+                    success_count,
+                    COALESCE(latency_sum_ms * 1.0 / NULLIF(latency_count, 0), 0.0) as avg_latency
+             FROM hourly_stats
+             WHERE bucket_hour >= strftime('%Y-%m-%d %H:00', datetime('now', 'localtime', 'start of day'))
+               AND endpoint_name = ?1
+             ORDER BY bucket_hour"
+        )?;
+        let rows = stmt.query_map(params![ep_filter], |row| {
+            Ok(HourlyStat {
+                hour: row.get(0)?,
+                count: row.get(1)?,
+                chars: row.get(2)?,
+                successes: row.get(3)?,
+                avg_latency_ms: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     /// 查询语言使用统计（全量），支持按端点过滤。
     ///
     /// 从 `hourly_lang_stats` 汇总表读取每种语言作为源语言（role='source'）和
@@ -1237,6 +1285,34 @@ impl Database {
         "#;
         let mut stmt = conn.prepare_cached(query)?;
         let rows = stmt.query_map(params![days, ep_filter], |row| {
+            Ok(LangStat {
+                lang: row.get(0)?,
+                source_chars: row.get(1)?,
+                target_chars: row.get(2)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// 查询本地自然日开始以来的语言使用统计，支持按端点过滤。
+    pub fn get_today_lang_stats_filtered(
+        &self,
+        endpoint: Option<&str>,
+    ) -> SqliteResult<Vec<LangStat>> {
+        let conn = self.conn.lock().unwrap();
+        let ep_filter = endpoint.unwrap_or("");
+        let query = r#"
+            SELECT lang,
+                   COALESCE(SUM(CASE WHEN role = 'source' THEN chars_sum ELSE 0 END), 0) AS source_chars,
+                   COALESCE(SUM(CASE WHEN role = 'target' THEN chars_sum ELSE 0 END), 0) AS target_chars
+            FROM hourly_lang_stats
+            WHERE bucket_hour >= strftime('%Y-%m-%d %H:00', datetime('now', 'localtime', 'start of day'))
+              AND endpoint_name = ?1
+            GROUP BY lang
+            ORDER BY (source_chars + target_chars) DESC
+        "#;
+        let mut stmt = conn.prepare_cached(query)?;
+        let rows = stmt.query_map(params![ep_filter], |row| {
             Ok(LangStat {
                 lang: row.get(0)?,
                 source_chars: row.get(1)?,
@@ -1338,6 +1414,40 @@ impl Database {
              ORDER BY day"
         )?;
         let rows = stmt.query_map(params![days, ep_filter], |row| {
+            Ok(DailyStat {
+                day: row.get(0)?,
+                count: row.get(1)?,
+                chars: row.get(2)?,
+                successes: row.get(3)?,
+                avg_latency_ms: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// 查询本地自然日开始以来按天聚合的统计数据，支持按端点过滤。
+    ///
+    /// 用于“今天”范围的日级趋势图。虽然结果只会有 1 个日期桶，但保留
+    /// `DailyStat` 结构可以直接复用前端图表逻辑。
+    pub fn get_today_daily_stats_filtered(
+        &self,
+        endpoint: Option<&str>,
+    ) -> SqliteResult<Vec<DailyStat>> {
+        let conn = self.conn.lock().unwrap();
+        let ep_filter = endpoint.unwrap_or("");
+        let mut stmt = conn.prepare_cached(
+            "SELECT substr(bucket_hour, 1, 10) as day,
+                    SUM(request_count) as count,
+                    SUM(source_chars_sum) as chars,
+                    SUM(success_count) as successes,
+                    COALESCE(SUM(latency_sum_ms) * 1.0 / NULLIF(SUM(latency_count), 0), 0.0) as avg_latency
+             FROM hourly_stats
+             WHERE bucket_hour >= strftime('%Y-%m-%d %H:00', datetime('now', 'localtime', 'start of day'))
+               AND endpoint_name = ?1
+             GROUP BY day
+             ORDER BY day"
+        )?;
+        let rows = stmt.query_map(params![ep_filter], |row| {
             Ok(DailyStat {
                 day: row.get(0)?,
                 count: row.get(1)?,
@@ -1627,6 +1737,44 @@ impl Database {
             let ts: f64 = row.get(0)?;
             let count: i64 = row.get(1)?;
             let offset = ts - window_start;
+            let index = ((offset / bucket_seconds) as i64).clamp(0, total_blocks as i64 - 1) as u32;
+            Ok(TimelineBlock { index, count })
+        })?;
+        rows.collect()
+    }
+
+    /// 查询本地自然日开始以来的时间线数据。
+    ///
+    /// 用于“今天”范围的热力图/活动条展示，起点是本地当天 00:00，而不是滚动 24 小时。
+    pub fn get_timeline_data_today(&self) -> SqliteResult<Vec<TimelineBlock>> {
+        let conn = self.conn.lock().unwrap();
+        let total_blocks: u32 = 672;
+        let start_of_day_ts: f64 = conn.query_row(
+            "SELECT CAST(strftime('%s', datetime('now', 'localtime', 'start of day')) AS REAL)",
+            [],
+            |row| row.get(0),
+        )?;
+        let now_ts: f64 = conn.query_row(
+            "SELECT CAST(strftime('%s', 'now', 'localtime') AS REAL)",
+            [],
+            |row| row.get(0),
+        )?;
+        let total_seconds = (now_ts - start_of_day_ts).max(1.0);
+        let bucket_seconds = total_seconds / total_blocks as f64;
+
+        let mut stmt = conn.prepare_cached(
+            "SELECT CAST(strftime('%s', created_at) AS REAL) as ts,
+                    COUNT(*) as count
+             FROM translation_logs
+             WHERE created_at >= datetime('now', 'localtime', 'start of day')
+             GROUP BY CAST((CAST(strftime('%s', created_at) AS REAL) - ?1) / ?2 AS INTEGER)
+             ORDER BY ts",
+        )?;
+
+        let rows = stmt.query_map(params![start_of_day_ts, bucket_seconds], |row| {
+            let ts: f64 = row.get(0)?;
+            let count: i64 = row.get(1)?;
+            let offset = ts - start_of_day_ts;
             let index = ((offset / bucket_seconds) as i64).clamp(0, total_blocks as i64 - 1) as u32;
             Ok(TimelineBlock { index, count })
         })?;
@@ -1937,6 +2085,88 @@ mod tests {
         let (count, chars) = db.get_period_stats_filtered(1, None).unwrap();
         assert_eq!(count, 2);
         assert_eq!(chars, 300);
+    }
+
+    #[test]
+    fn test_today_stats_start_at_local_midnight() {
+        let db = temp_db();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("DELETE FROM hourly_stats", []).unwrap();
+            conn.execute(
+                "INSERT INTO hourly_stats (bucket_hour, endpoint_name, request_count, success_count, error_count, source_chars_sum, target_chars_sum, latency_sum_ms, latency_count)
+                 VALUES (strftime('%Y-%m-%d 23:00', datetime('now', '-1 day', 'localtime')), '', 5, 5, 0, 500, 400, 50, 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO hourly_stats (bucket_hour, endpoint_name, request_count, success_count, error_count, source_chars_sum, target_chars_sum, latency_sum_ms, latency_count)
+                 VALUES (strftime('%Y-%m-%d %H:00', 'now', 'localtime'), '', 2, 2, 0, 200, 160, 20, 1)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let today = db.get_today_stats_filtered(None).unwrap();
+        assert_eq!(today, (2, 200));
+
+        let today_hourly = db.get_today_hourly_stats_filtered(None).unwrap();
+        let hourly_count: i64 = today_hourly.iter().map(|h| h.count).sum();
+        assert_eq!(hourly_count, 2);
+
+        let today_daily = db.get_today_daily_stats_filtered(None).unwrap();
+        let daily_count: i64 = today_daily.iter().map(|d| d.count).sum();
+        assert_eq!(daily_count, 2);
+    }
+
+    #[test]
+    fn test_today_lang_stats_start_at_local_midnight() {
+        let db = temp_db();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("DELETE FROM hourly_lang_stats", []).unwrap();
+            conn.execute(
+                "INSERT INTO hourly_lang_stats (bucket_hour, lang, role, endpoint_name, request_count, chars_sum)
+                 VALUES (strftime('%Y-%m-%d 23:00', datetime('now', '-1 day', 'localtime')), 'EN', 'source', '', 5, 500)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO hourly_lang_stats (bucket_hour, lang, role, endpoint_name, request_count, chars_sum)
+                 VALUES (strftime('%Y-%m-%d %H:00', 'now', 'localtime'), 'EN', 'source', '', 2, 200)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let stats = db.get_today_lang_stats_filtered(None).unwrap();
+        let en = stats.iter().find(|item| item.lang == "EN").unwrap();
+        assert_eq!(en.source_chars, 200);
+    }
+
+    #[test]
+    fn test_today_timeline_starts_at_local_midnight() {
+        let db = temp_db();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("DELETE FROM translation_logs", []).unwrap();
+            conn.execute(
+                "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms)
+                 VALUES (100, 'EN', 'ZH', 100, 80, 'success', NULL, strftime('%Y-%m-%d 23:00:00', datetime('now', '-1 day', 'localtime')), '', NULL)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO translation_logs (chars, source_lang, target_lang, source_chars, target_chars, status, error_msg, created_at, endpoint_name, latency_ms)
+                 VALUES (200, 'EN', 'ZH', 200, 160, 'success', NULL, datetime('now', 'localtime'), '', NULL)",
+                [],
+            )
+            .unwrap();
+        }
+
+        let blocks = db.get_timeline_data_today().unwrap();
+        let total: i64 = blocks.iter().map(|block| block.count).sum();
+        assert_eq!(total, 1);
     }
 
     #[test]

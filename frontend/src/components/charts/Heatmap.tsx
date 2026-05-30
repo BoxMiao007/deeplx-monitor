@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { apiFetch } from '@/hooks/useApi'
+import { startOfRange, timeRangeQuery, type HeatmapRange } from '@/utils/timeRange'
 import styles from './Heatmap.module.scss'
 
 const GRID_COLS = 96
@@ -31,11 +32,13 @@ function intensityToGradient(rate: number): string {
   return `linear-gradient(180deg, rgb(${topR}, ${topG}, ${topB}) 0%, rgb(${botR}, ${botG}, ${botB}) 100%)`
 }
 
-function formatBlockTime(index: number, days: number): string {
-  const totalMs = days * 86400 * 1000
+function formatBlockTime(index: number, range: HeatmapRange): string {
+  const nowDate = new Date()
+  const now = nowDate.getTime()
+  const startOfWindow = startOfRange(range, nowDate).getTime()
+  const totalMs = Math.max(now - startOfWindow, 1)
   const bucketMs = totalMs / TOTAL_BLOCKS
-  const now = Date.now()
-  const startMs = now - totalMs + index * bucketMs
+  const startMs = startOfWindow + index * bucketMs
   const endMs = startMs + bucketMs
   const start = new Date(startMs)
   const end = new Date(endMs)
@@ -62,23 +65,23 @@ interface TooltipState {
 }
 
 interface HeatmapProps {
-  days: number
+  range: HeatmapRange
 }
 
-export function Heatmap({ days }: HeatmapProps) {
+export function Heatmap({ range }: HeatmapProps) {
   const [blocks, setBlocks] = useState<number[]>(() => new Array(TOTAL_BLOCKS).fill(0))
   const [activeTooltip, setActiveTooltip] = useState<TooltipState | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    apiFetch<TimelineBlock[]>(`/api/analytics/timeline?days=${days}`).then(data => {
+    apiFetch<TimelineBlock[]>(`/api/analytics/timeline?${timeRangeQuery(range)}`).then(data => {
       const arr = new Array(TOTAL_BLOCKS).fill(0)
       data.forEach(b => {
         if (b.index >= 0 && b.index < TOTAL_BLOCKS) arr[b.index] = b.count
       })
       setBlocks(arr)
     }).catch(() => {})
-  }, [days])
+  }, [range])
 
   const max = Math.max(...blocks, 1)
 
@@ -162,7 +165,7 @@ export function Heatmap({ days }: HeatmapProps) {
           className={styles.tooltip}
           style={{ position: 'fixed', left: activeTooltip.left, top: activeTooltip.top, transform: activeTooltip.transform }}
         >
-          <span className={styles.tooltipTime}>{formatBlockTime(activeBlock.index, days)}</span>
+          <span className={styles.tooltipTime}>{formatBlockTime(activeBlock.index, range)}</span>
           <span className={styles.tooltipCount}>{activeBlock.count} 次请求</span>
         </div>,
         document.body

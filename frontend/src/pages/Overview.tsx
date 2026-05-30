@@ -11,6 +11,7 @@ import { Modal } from '@/components/ui/Modal/Modal'
 import { StatCard } from '@/components/shared/StatCard'
 import { LangFlag } from '@/components/shared/LangFlag'
 import { TrendChart } from '@/components/charts/TrendChart'
+import { isHourlyRange, timeRangeQuery, type TimeRange } from '@/utils/timeRange'
 import type { TrendDataset } from '@/components/charts/TrendChart'
 import type { ChartData as ChartDataType } from '@/types'
 import styles from './Overview.module.scss'
@@ -18,8 +19,8 @@ import styles from './Overview.module.scss'
 export function Overview() {
   const { t } = useTranslation()
   const {
-    stats, days, refreshInterval,
-    setDays, setRefreshInterval, fetchStats, fetchAll,
+    stats, range, refreshInterval,
+    setRange, setRefreshInterval, fetchStats, fetchAll,
   } = useStatsStore()
   const { endpoints, cacheStats, cacheHitLogs, fetchUpstreamStatus, fetchCacheStats, fetchCacheHitLogs, clearCache, triggerHealthCheck, triggerEndpointHealthCheck } = useEndpointStore()
   const [confirmClear, setConfirmClear] = useState(false)
@@ -36,12 +37,12 @@ export function Overview() {
   const [sparkSuccessRate, setSparkSuccessRate] = useState<{ value: number }[]>([])
   const [sparkLatency, setSparkLatency] = useState<{ value: number }[]>([])
 
-  const fetchChartData = useCallback(async (epList: { name: string }[], chartDays?: number | null) => {
+  const fetchChartData = useCallback(async (epList: { name: string }[], chartRange?: TimeRange) => {
     try {
-      const d = chartDays ?? days
-      const daysParam = d !== null && d > 0 ? `days=${d}` : 'days=90'
-      const totalRes = await apiFetch<ChartDataType>(`/api/chart?${daysParam}`)
-      const useHourly = d === 1
+      const selectedRange = chartRange ?? range
+      const query = timeRangeQuery(selectedRange)
+      const totalRes = await apiFetch<ChartDataType>(`/api/chart?${query}`)
+      const useHourly = isHourlyRange(selectedRange)
       const labels = useHourly
         ? totalRes.hourly.map(h => h.hour)
         : totalRes.daily.map(d => d.day)
@@ -69,7 +70,7 @@ export function Overview() {
       let charBars: TrendDataset[] = []
       if (epList.length > 0) {
         const epResults = await Promise.all(
-          epList.map(ep => apiFetch<ChartDataType>(`/api/chart?endpoint=${encodeURIComponent(ep.name)}&${daysParam}`))
+          epList.map(ep => apiFetch<ChartDataType>(`/api/chart?endpoint=${encodeURIComponent(ep.name)}&${query}`))
         )
         bars = epList.map((ep, i) => {
           const countMap = new Map<string, number>()
@@ -97,7 +98,7 @@ export function Overview() {
       setEpBars(bars)
       setEpCharBars(charBars)
     } catch {}
-  }, [days, t])
+  }, [range, t])
 
   useEffect(() => {
     fetchAll()
@@ -129,10 +130,10 @@ export function Overview() {
   useAutoRefresh(refreshData, refreshInterval)
 
   const onDaysChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const v = Number(e.target.value)
-    setDays(v === 0 ? null : v)
-    fetchStats(v === 0 ? null : v)
-    fetchChartData(endpoints, v === 0 ? null : v)
+    const value = e.target.value as TimeRange
+    setRange(value)
+    fetchStats(value)
+    fetchChartData(endpoints, value)
   }
 
   const onRefreshChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -157,7 +158,7 @@ export function Overview() {
       : '100.0'
     : '-'
 
-  const labelMode = days === 1 ? 'time' as const : days === null ? 'full' as const : 'day' as const
+  const labelMode = isHourlyRange(range) ? 'time' as const : range === 'all' ? 'full' as const : 'day' as const
 
   const formatNum = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -188,14 +189,15 @@ export function Overview() {
       <div className={styles.controls}>
         <Select
           label={t('overview.range')}
-          value={days ?? 0}
+          value={range}
           onChange={onDaysChange}
           options={[
-            { value: 1, label: t('overview.today') },
-            { value: 7, label: t('overview.days7') },
-            { value: 30, label: t('overview.days30') },
-            { value: 90, label: t('overview.days90') },
-            { value: 0, label: t('overview.all') },
+            { value: 'today', label: t('overview.today') },
+            { value: '24h', label: t('overview.hours24') },
+            { value: '7d', label: t('overview.days7') },
+            { value: '30d', label: t('overview.days30') },
+            { value: '90d', label: t('overview.days90') },
+            { value: 'all', label: t('overview.all') },
           ]}
         />
         <Select
