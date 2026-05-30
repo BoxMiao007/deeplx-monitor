@@ -114,3 +114,39 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 拆分今天范围并发布 v2.3.0
+
+**Date**: 2026-05-30
+**Task**: 拆分今天范围并发布 v2.3.0
+**Branch**: `main`
+
+### Summary
+
+实现今天从本地零点计算并新增24h范围，修复范围统计unwrap，发布v2.3.0，并更新Rust依赖锁定版本。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4f76dc8` | (see git log) |
+| `e549393` | (see git log) |
+| `1c2a103` | (see git log) |
+| `4a05cc6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
