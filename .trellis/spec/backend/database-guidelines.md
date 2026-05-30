@@ -45,6 +45,7 @@ Questions to answer:
 - `days=N` remains backward compatible for rolling N-day queries.
 - `all` maps to aggregate totals, while charts still limit daily output to the existing 90-day window.
 - Empty endpoint filters (`None` or `""`) must read the global rows.
+- Any UI range control that exposes `today` for timeline-style data must also expose `24h` when the rolling 24-hour behavior is still supported.
 
 #### 4. Validation & Error Matrix
 - Unknown `range` value -> handled by the API layer fallback, not by the DB helpers.
@@ -55,6 +56,7 @@ Questions to answer:
 - Good: `today` excludes yesterday 23:00 rows.
 - Base: `24h` includes rows within the last 24 hours even if they started yesterday.
 - Bad: using `datetime('now', '-1 days', 'localtime')` to represent `today`.
+- Bad: updating a `today` selector to local-midnight semantics without also exposing the preserved `24h` option.
 
 #### 6. Tests Required
 - Add a regression test that seeds `hourly_stats` with yesterday 23:00 and today rows, then asserts `get_today_stats_filtered()` only returns the today row.

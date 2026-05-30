@@ -106,6 +106,7 @@ export function Analysis() {
             onChange={onHeatmapDaysChange}
             options={[
               { value: 'today', label: t('overview.today') },
+              { value: '24h', label: t('overview.hours24') },
               { value: '7d', label: t('overview.days7') },
             ]}
           />
